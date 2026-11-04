@@ -70,7 +70,7 @@
     font-size: 12pt;
     line-height: 1.6;
     width: 210mm;
-    min-height: 297mm; /* Full A4 Height */
+    min-height: 297mm;
     margin: 0 auto 30px auto;
     padding: 22mm 18mm 25mm;
     box-shadow: 0 10px 30px rgba(0,0,0,0.4);
@@ -112,6 +112,13 @@
   .mark-btn { padding: 4px 12px; border: 1px solid #16A34A; background: #FFF; color: #166534; font-weight: bold; border-radius: 4px; cursor: pointer; }
   .mark-btn.active { background: #16A34A; color: #FFF; }
 
+  .auto-eval-box { margin-top: 8px; padding: 10px; border-radius: 6px; font-size: 10.5pt; font-family: 'Inter', sans-serif; display: none; }
+  .auto-eval-box.correct { background: #ECFDF5; border: 1px solid #10B981; color: #065F46; display: block; }
+  .auto-eval-box.incorrect { background: #FEF2F2; border: 1px solid #EF4444; color: #991B1B; display: block; }
+
+  .submit-answer-btn { background: #0284C7; color: #FFF; border: 0; padding: 6px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; margin-top: 8px; }
+  .submit-answer-btn:hover { background: #0369A1; }
+
   /* Mark Scheme Section (Section 2) Styling */
   .mark-scheme-item { margin-bottom: 20px; border-bottom: 1px dotted #CBD5E1; padding-bottom: 12px; page-break-inside: avoid; }
   .mark-scheme-item-top { display: flex; justify-content: space-between; font-weight: bold; font-size: 11pt; margin-bottom: 4px; }
@@ -120,7 +127,7 @@
 
   @media print {
     body { background: #FFF; color: #000; }
-    .exam-toolbar, .config-shell, .score-summary-bar { display: none !important; }
+    .exam-toolbar, .config-shell, .score-summary-bar, .submit-answer-btn, .auto-eval-box { display: none !important; }
     .page-sheet { display: block !important; box-shadow: none; border: 0; margin: 0; padding: 10mm; width: 100%; page-break-after: always; position: relative; min-height: auto; }
     .mark-scheme-drawer { display: none !important; }
     .answer-space textarea { display: none; }
@@ -273,8 +280,51 @@ window.addEventListener('DOMContentLoaded', () => {
     showSinglePageMode: true,
     pagesData: [],
     revealedSchemes: {},
-    awardedMarks: {}
+    awardedMarks: {},
+    userAnswers: {},
+    submittedStatus: {}
   };
+
+  function evaluateAnswer(userText, schemeText, maxMarks) {
+    if (!userText || userText.trim() === '') return { awarded: 0, feedback: 'No answer provided.' };
+    const cleanUser = userText.trim().toUpperCase();
+    const cleanScheme = schemeText.toUpperCase();
+
+    // MCQ evaluation (expects single letter like A, B, C, D)
+    if (maxMarks === 1 && cleanUser.length <= 3) {
+      const correctLetter = cleanScheme.charAt(0);
+      if (cleanUser.includes(correctLetter)) {
+        return { awarded: 1, feedback: `Correct! Option ${correctLetter} matches the mark scheme.` };
+      } else {
+        return { awarded: 0, feedback: `Incorrect. Expected option ${correctLetter}.` };
+      }
+    }
+
+    // Structured keyword evaluation
+    let matchedKeywords = 0;
+    const words = schemeText.replace(/[^a-zA-Z0-9\s]/g, '').toLowerCase().split(/\s+/).filter(w => w.length > 3);
+    const uniqueWords = [...new Set(words)];
+    
+    uniqueWords.forEach(word => {
+      if (userText.toLowerCase().includes(word)) matchedKeywords++;
+    });
+
+    let awarded = 0;
+    if (uniqueWords.length === 0) {
+      awarded = maxMarks;
+    } else {
+      const ratio = matchedKeywords / uniqueWords.length;
+      if (ratio > 0.4) awarded = maxMarks;
+      else if (ratio > 0.2) awarded = Math.ceil(maxMarks / 2);
+      else awarded = 0;
+    }
+
+    awarded = Math.min(Math.max(awarded, 0), maxMarks);
+    return {
+      awarded,
+      feedback: `Auto-marked against mark scheme components (${awarded}/${maxMarks} marks awarded based on matched terms).`
+    };
+  }
 
   function render() {
     const app = $('#app');
@@ -355,6 +405,9 @@ window.addEventListener('DOMContentLoaded', () => {
       state.pagesData = generatePaperPages(state.preset);
       state.screen = 'exam';
       state.currentPage = 1;
+      state.awardedMarks = {};
+      state.userAnswers = {};
+      state.submittedStatus = {};
       render();
     };
 
@@ -454,8 +507,7 @@ window.addEventListener('DOMContentLoaded', () => {
               <ul>
                 <li>Use black ink. You may use an HB pencil for graphs and diagrams.</li>
                 <li>Answer <strong>all</strong> questions in Section A (Multiple Choice) and Section B (Structured Questions).</li>
-                <li>Write your answer to each question in the space provided.</li>
-                <li><strong>Note:</strong> The Mark Scheme is located in Section 2 at the back of this paper.</li>
+                <li>Click <strong>Submit Answer</strong> to auto-check your response against the mark scheme components and tally your score.</li>
               </ul>
             </div>
             <div class="section-title">SECTION A &mdash; Multiple Choice Questions</div>
@@ -480,6 +532,8 @@ window.addEventListener('DOMContentLoaded', () => {
             const key = `p${pageNum}_q${idx}`;
             const isRevealed = state.revealedSchemes[key] || false;
             const currentAward = state.awardedMarks[key] != null ? state.awardedMarks[key] : '';
+            const userVal = state.userAnswers[key] || '';
+            const isSubmitted = state.submittedStatus[key] || false;
 
             qBlock.innerHTML = `
               <div class="question-top">
@@ -491,18 +545,22 @@ window.addEventListener('DOMContentLoaded', () => {
                 ${opts.map(o => `<div class="mcq-option"><strong>${o.charAt(0)}</strong><span>${o.slice(2)}</span></div>`).join('')}
               </div>
               <div class="answer-space" style="min-height:50px;">
-                <textarea placeholder="Write answer letter (A, B, C, or D) and working..."></textarea>
+                <textarea data-answer-key="${key}" placeholder="Write answer letter (A, B, C, or D)...">${userVal}</textarea>
               </div>
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; flex-wrap:wrap; gap:8px;">
+                <button class="submit-answer-btn" data-submit-key="${key}" data-scheme="${encodeURIComponent(q.mark_scheme)}" data-max="${q.marks}">Submit Answer & Auto-Mark</button>
                 <button class="btn-ghost" style="color:#0284C7; border:1px solid #CBD5E1; padding:4px 10px; font-size:12px; cursor:pointer;" data-reveal="${key}">
                   ${isRevealed ? 'Hide Mark Scheme' : 'Reveal Mark Scheme'}
                 </button>
+              </div>
+              <div class="auto-eval-box ${isSubmitted ? (currentAward > 0 ? 'correct' : 'incorrect') : ''}" id="eval_${key}" style="display: ${isSubmitted ? 'block' : 'none'};">
+                <strong>Auto-Evaluation:</strong> <span id="eval_text_${key}">${isSubmitted ? (currentAward > 0 ? 'Correct! Full mark awarded.' : 'Incorrect or missing key component.') : ''}</span> (${currentAward}/${q.marks} marks)
               </div>
               <div class="mark-scheme-drawer ${isRevealed ? 'visible' : ''}">
                 <strong>Answer & Mark Scheme:</strong>
                 <p style="margin:4px 0 6px 0;">${q.mark_scheme}</p>
                 <div class="mark-btn-row">
-                  <span>Award Mark:</span>
+                  <span>Override Mark:</span>
                   <button class="mark-btn ${currentAward === 0 ? 'active' : ''}" data-key="${key}" data-mark="0">0</button>
                   <button class="mark-btn ${currentAward === 1 ? 'active' : ''}" data-key="${key}" data-mark="1">1</button>
                 </div>
@@ -515,6 +573,8 @@ window.addEventListener('DOMContentLoaded', () => {
                 const subKey = `p${pageNum}_struct_${idx}_${sIdx}`;
                 const isRevealed = state.revealedSchemes[subKey] || false;
                 const currentAward = state.awardedMarks[subKey] != null ? state.awardedMarks[subKey] : '';
+                const userVal = state.userAnswers[subKey] || '';
+                const isSubmitted = state.submittedStatus[subKey] || false;
 
                 return `
                   <div class="subquestion-block">
@@ -524,18 +584,22 @@ window.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="question-text">${sub.text}</div>
                     <div class="answer-space">
-                      <textarea placeholder="Write your full working and final response here..."></textarea>
+                      <textarea data-answer-key="${subKey}" placeholder="Write your full working and final response here...">${userVal}</textarea>
                     </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; flex-wrap:wrap; gap:8px;">
+                      <button class="submit-answer-btn" data-submit-key="${subKey}" data-scheme="${encodeURIComponent(sub.mark_scheme)}" data-max="${sub.marks}">Submit Answer & Auto-Mark</button>
                       <button class="btn-ghost" style="color:#0284C7; border:1px solid #CBD5E1; padding:4px 10px; font-size:12px; cursor:pointer;" data-reveal="${subKey}">
                         ${isRevealed ? 'Hide Mark Scheme' : 'Reveal Mark Scheme'}
                       </button>
+                    </div>
+                    <div class="auto-eval-box ${isSubmitted ? (currentAward > 0 ? 'correct' : 'incorrect') : ''}" id="eval_${subKey}" style="display: ${isSubmitted ? 'block' : 'none'};">
+                      <strong>Auto-Evaluation:</strong> <span id="eval_text_${subKey}">${isSubmitted ? `Awarded ${currentAward}/${sub.marks} marks based on mark scheme component matching.` : ''}</span>
                     </div>
                     <div class="mark-scheme-drawer ${isRevealed ? 'visible' : ''}">
                       <strong>Official Mark Scheme:</strong>
                       <p style="margin:4px 0 6px 0; white-space:pre-wrap;">${sub.mark_scheme}</p>
                       <div class="mark-btn-row">
-                        <span>Award Marks (0 to ${sub.marks}):</span>
+                        <span>Override Marks (0 to ${sub.marks}):</span>
                         ${Array.from({length: sub.marks + 1}, (_, m) => `
                           <button class="mark-btn ${currentAward === m ? 'active' : ''}" data-key="${subKey}" data-mark="${m}">${m}</button>
                         `).join('')}
@@ -574,10 +638,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
     viewport.appendChild(sheetContainer);
 
+    let totalAwarded = Object.values(state.awardedMarks).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+
     const tallyBar = document.createElement('div');
     tallyBar.className = 'score-summary-bar';
     tallyBar.innerHTML = `
-      <div><strong>Candidate Exam Tally:</strong> Component ${cfg.code} (${cfg.marks} Marks | ${cfg.time} | ${totalPages} Total Pages)</div>
+      <div><strong>Live Score Tally:</strong> <span style="color:#38BDF8; font-size:16px; font-weight:bold;">${totalAwarded}</span> / ${cfg.marks} Marks | Component ${cfg.code}</div>
       <div style="display:flex; gap:12px;">
         <button id="bottomPrev" class="btn-ghost" ${state.currentPage === 1 ? 'disabled' : ''} style="padding:6px 14px;">&larr; Prev Page</button>
         <span style="align-self:center;">Page ${state.currentPage} of ${totalPages}</span>
@@ -585,6 +651,28 @@ window.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
     viewport.appendChild(tallyBar);
+
+    viewport.querySelectorAll('textarea[data-answer-key]').forEach(ta => {
+      ta.oninput = (e) => {
+        const k = e.target.getAttribute('data-answer-key');
+        state.userAnswers[k] = e.target.value;
+      };
+    });
+
+    viewport.querySelectorAll('.submit-answer-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const key = e.target.getAttribute('data-submit-key');
+        const scheme = decodeURIComponent(e.target.getAttribute('data-scheme'));
+        const maxMarks = parseInt(e.target.getAttribute('data-max'));
+        const textarea = viewport.querySelector(`textarea[data-answer-key="${key}"]`);
+        const userText = textarea ? textarea.value : '';
+
+        const result = evaluateAnswer(userText, scheme, maxMarks);
+        state.awardedMarks[key] = result.awarded;
+        state.submittedStatus[key] = true;
+        render();
+      };
+    });
 
     toolbar.querySelector('#prevPageBtn').onclick = () => {
       if (state.currentPage > 1) { state.currentPage--; render(); window.scrollTo(0,0); }
