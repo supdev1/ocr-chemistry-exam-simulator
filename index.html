@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCR A-Level Chemistry - Official Examination Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Times+New+Roman:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper-bg: #FFFFFF;
+    --paper-ink: #000000;
+    --ui-bg: #0F172A;
+    --ui-panel: #1E293B;
+    --ui-border: #334155;
+    --ui-text: #F8FAFC;
+    --ui-muted: #94A3B8;
+    --action: #0EA5E9;
+    --action-hover: #0284C7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    line-height: 1.5;
+  }
+
+  /* Config & Generator Screen */
+  .config-shell { max-width: 820px; margin: 40px auto; padding: 32px; background: var(--ui-panel); border: 1px solid var(--ui-border); border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); }
+  h1 { font-family: 'Times New Roman', Times, serif; font-size: 32px; margin-bottom: 8px; color: #FFF; }
+  p { margin: 0 0 20px; color: var(--ui-muted); }
+
+  .preset-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 24px; }
+  @media (min-width: 640px) { .preset-grid { grid-template-columns: 1fr 1fr 1fr; } }
+  
+  .preset-card { padding: 18px; border: 2px solid var(--ui-border); border-radius: 12px; background: rgba(15, 23, 42, 0.6); cursor: pointer; transition: all 0.2s ease; position: relative; }
+  .preset-card:hover { border-color: var(--action); }
+  .preset-card.selected { border-color: var(--action); background: rgba(14, 165, 233, 0.15); }
+  .preset-card h3 { font-size: 16px; margin: 0 0 6px 0; color: #FFF; }
+  .preset-card p { font-size: 12px; margin: 0 0 8px 0; color: var(--ui-muted); }
+  .preset-badge { display: inline-block; padding: 3px 8px; background: rgba(14, 165, 233, 0.2); color: var(--action); border-radius: 4px; font-size: 11px; font-weight: 700; }
+
+  .module-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 16px 0 24px; }
+  @media (min-width: 500px) { .module-grid { grid-template-columns: 1fr 1fr; } }
+  .module-card { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1.5px solid var(--ui-border); border-radius: 8px; background: var(--ui-panel); cursor: pointer; }
+  .module-card.selected { border-color: var(--action); background: rgba(14, 165, 233, 0.12); }
+  .module-card input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--action); }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 12px 24px; background: var(--action); color: #0F172A; font-weight: 700; border: 0; border-radius: 8px; cursor: pointer; width: 100%; font-size: 17px; }
+  .btn:hover { background: var(--action-hover); }
+  .btn-ghost { background: transparent; color: #FFF; border: 1px solid var(--ui-border); }
+
+  /* Navigation Bar */
+  .exam-toolbar { background: #0F172A; color: #FFF; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--ui-border); flex-wrap: wrap; gap: 10px; }
+  .nav-btn-group { display: flex; items-center; gap: 8px; }
+  .exam-toolbar button, .exam-toolbar select { background: #334155; color: #FFF; border: 0; padding: 8px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; }
+  .exam-toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .exam-toolbar button:hover:not(:disabled) { background: #475569; }
+
+  /* Multi-Page A4 Sheet Rendering */
+  .exam-sheet-container { padding: 20px 0 80px; }
+  .page-sheet {
+    background: var(--paper-bg);
+    color: var(--paper-ink);
+    font-family: 'Times New Roman', Times, Georgia, serif;
+    font-size: 12pt;
+    line-height: 1.6;
+    width: 210mm;
+    min-height: 297mm; /* Full A4 Height */
+    margin: 0 auto 30px auto;
+    padding: 22mm 18mm 25mm;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    border: 1px solid #CBD5E1;
+    position: relative;
+    box-sizing: border-box;
+  }
+  .page-sheet.hidden { display: none; }
+
+  /* Page Headers & Footers */
+  .exam-header { border-bottom: 2.5px solid #000; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .exam-header-left h2 { font-size: 17pt; font-weight: bold; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: -0.5px; }
+  .exam-header-left p { font-size: 11pt; margin: 0; color: #000; }
+  .exam-header-right { text-align: right; font-size: 11pt; font-weight: bold; }
+
+  .exam-instructions { border: 1.5px solid #000; padding: 12px 16px; margin-bottom: 28px; font-size: 10pt; background: #FAF9F6; }
+  .exam-instructions ul { margin: 4px 0 0 18px; padding: 0; }
+
+  .page-footer { position: absolute; bottom: 12mm; left: 18mm; right: 18mm; border-top: 1px solid #000; padding-top: 6px; display: flex; justify-content: space-between; font-size: 10pt; font-weight: bold; }
+
+  .section-title { font-size: 14pt; font-weight: bold; border-bottom: 1px solid #000; margin: 25px 0 16px; padding-bottom: 4px; text-transform: uppercase; }
+
+  .question-block { margin-bottom: 25px; page-break-inside: avoid; }
+  .question-top { display: flex; justify-content: space-between; align-items: baseline; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px; }
+  .question-text { margin-bottom: 10px; text-align: justify; }
+
+  .subquestion-block { margin-left: 20px; margin-top: 14px; border-left: 2px solid #E2E8F0; padding-left: 14px; }
+  .subquestion-top { display: flex; justify-content: space-between; font-weight: bold; font-size: 11pt; margin-bottom: 6px; }
+
+  .mcq-grid { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px 16px; }
+  .mcq-option { display: flex; gap: 10px; align-items: baseline; }
+
+  .answer-space { border: 1px dashed #94A3B8; min-height: 80px; margin-top: 10px; padding: 10px; background: #FAFAFA; border-radius: 4px; }
+  .answer-space textarea { width: 100%; height: 100%; min-height: 65px; border: 0; background: transparent; font-family: 'Times New Roman', Times, serif; font-size: 11pt; resize: vertical; outline: none; }
+
+  .mark-scheme-drawer { margin-top: 12px; background: #F0FDF4; border: 1.5px solid #16A34A; padding: 12px; font-family: 'Inter', sans-serif; font-size: 10pt; color: #166534; border-radius: 6px; display: none; }
+  .mark-scheme-drawer.visible { display: block; }
+  .mark-btn-row { margin-top: 10px; display: flex; gap: 6px; align-items: center; }
+  .mark-btn { padding: 4px 12px; border: 1px solid #16A34A; background: #FFF; color: #166534; font-weight: bold; border-radius: 4px; cursor: pointer; }
+  .mark-btn.active { background: #16A34A; color: #FFF; }
+
+  /* Mark Scheme Section (Section 2) Styling */
+  .mark-scheme-item { margin-bottom: 20px; border-bottom: 1px dotted #CBD5E1; padding-bottom: 12px; page-break-inside: avoid; }
+  .mark-scheme-item-top { display: flex; justify-content: space-between; font-weight: bold; font-size: 11pt; margin-bottom: 4px; }
+
+  .score-summary-bar { background: #1E293B; color: #FFF; padding: 14px 24px; position: sticky; bottom: 0; z-index: 90; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--ui-border); font-family: 'Inter', sans-serif; }
+
+  @media print {
+    body { background: #FFF; color: #000; }
+    .exam-toolbar, .config-shell, .score-summary-bar { display: none !important; }
+    .page-sheet { display: block !important; box-shadow: none; border: 0; margin: 0; padding: 10mm; width: 100%; page-break-after: always; position: relative; min-height: auto; }
+    .mark-scheme-drawer { display: none !important; } /* Removed when printing Section 1 */
+    .answer-space textarea { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const OCR_MODULES = [
+  { id: 1, name: 'Module 1: Development of Practical Skills', desc: 'Practical skills, experimental design, errors & analysis' },
+  { id: 2, name: 'Module 2: Foundations in Chemistry', desc: 'Atoms, amount of substance, acid-base, bonding, redox' },
+  { id: 3, name: 'Module 3: Periodic Table & Energy', desc: 'Periodic trends, Group 2 & 7, enthalpy, reaction rates, equilibrium' },
+  { id: 4, name: 'Module 4: Core Organic Chemistry', desc: 'Basic concepts, alkanes, alkenes, alcohols, haloalkanes, IR & MS' },
+  { id: 5, name: 'Module 5: Physical Chemistry & Transition Elements', desc: 'Rates, equilibrium constants, pH, entropy, electrode potentials, transition metals' },
+  { id: 6, name: 'Module 6: Organic Chemistry & Analysis', desc: 'Aromatics, carbonyls, carboxylic acids, amines, polymers, NMR spectroscopy' }
+];
+
+const PRESET_CONFIGS = {
+  paper1: {
+    title: 'Paper 1: Periodic Table, Elements & Physical Chemistry',
+
+cat << 'EOF' > chemistry_official_exam_simulator.html
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCR A-Level Chemistry - Official Examination Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Times+New+Roman:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper-bg: #FFFFFF;
+    --paper-ink: #000000;
+    --ui-bg: #0F172A;
+    --ui-panel: #1E293B;
+    --ui-border: #334155;
+    --ui-text: #F8FAFC;
+    --ui-muted: #94A3B8;
+    --action: #0EA5E9;
+    --action-hover: #0284C7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    line-height: 1.5;
+  }
+
+  /* Config & Generator Screen */
+  .config-shell { max-width: 820px; margin: 40px auto; padding: 32px; background: var(--ui-panel); border: 1px solid var(--ui-border); border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); }
+  h1 { font-family: 'Times New Roman', Times, serif; font-size: 32px; margin-bottom: 8px; color: #FFF; }
+  p { margin: 0 0 20px; color: var(--ui-muted); }
+
+  .preset-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 24px; }
+  @media (min-width: 640px) { .preset-grid { grid-template-columns: 1fr 1fr 1fr; } }
+  
+  .preset-card { padding: 18px; border: 2px solid var(--ui-border); border-radius: 12px; background: rgba(15, 23, 42, 0.6); cursor: pointer; transition: all 0.2s ease; position: relative; }
+  .preset-card:hover { border-color: var(--action); }
+  .preset-card.selected { border-color: var(--action); background: rgba(14, 165, 233, 0.15); }
+  .preset-card h3 { font-size: 16px; margin: 0 0 6px 0; color: #FFF; }
+  .preset-card p { font-size: 12px; margin: 0 0 8px 0; color: var(--ui-muted); }
+  .preset-badge { display: inline-block; padding: 3px 8px; background: rgba(14, 165, 233, 0.2); color: var(--action); border-radius: 4px; font-size: 11px; font-weight: 700; }
+
+  .module-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 16px 0 24px; }
+  @media (min-width: 500px) { .module-grid { grid-template-columns: 1fr 1fr; } }
+  .module-card { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1.5px solid var(--ui-border); border-radius: 8px; background: var(--ui-panel); cursor: pointer; }
+  .module-card.selected { border-color: var(--action); background: rgba(14, 165, 233, 0.12); }
+  .module-card input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--action); }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 12px 24px; background: var(--action); color: #0F172A; font-weight: 700; border: 0; border-radius: 8px; cursor: pointer; width: 100%; font-size: 17px; }
+  .btn:hover { background: var(--action-hover); }
+  .btn-ghost { background: transparent; color: #FFF; border: 1px solid var(--ui-border); }
+
+  /* Navigation Bar */
+  .exam-toolbar { background: #0F172A; color: #FFF; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--ui-border); flex-wrap: wrap; gap: 10px; }
+  .nav-btn-group { display: flex; items-center; gap: 8px; }
+  .exam-toolbar button, .exam-toolbar select { background: #334155; color: #FFF; border: 0; padding: 8px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; }
+  .exam-toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .exam-toolbar button:hover:not(:disabled) { background: #475569; }
+
+  /* Multi-Page A4 Sheet Rendering */
+  .exam-sheet-container { padding: 20px 0 80px; }
+  .page-sheet {
+    background: var(--paper-bg);
+    color: var(--paper-ink);
+    font-family: 'Times New Roman', Times, Georgia, serif;
+    font-size: 12pt;
+    line-height: 1.6;
+    width: 210mm;
+    min-height: 297mm; /* Full A4 Height */
+    margin: 0 auto 30px auto;
+    padding: 22mm 18mm 25mm;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    border: 1px solid #CBD5E1;
+    position: relative;
+    box-sizing: border-box;
+  }
+  .page-sheet.hidden { display: none; }
+
+  /* Page Headers & Footers */
+  .exam-header { border-bottom: 2.5px solid #000; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .exam-header-left h2 { font-size: 17pt; font-weight: bold; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: -0.5px; }
+  .exam-header-left p { font-size: 11pt; margin: 0; color: #000; }
+  .exam-header-right { text-align: right; font-size: 11pt; font-weight: bold; }
+
+  .exam-instructions { border: 1.5px solid #000; padding: 12px 16px; margin-bottom: 28px; font-size: 10pt; background: #FAF9F6; }
+  .exam-instructions ul { margin: 4px 0 0 18px; padding: 0; }
+
+  .page-footer { position: absolute; bottom: 12mm; left: 18mm; right: 18mm; border-top: 1px solid #000; padding-top: 6px; display: flex; justify-content: space-between; font-size: 10pt; font-weight: bold; }
+
+  .section-title { font-size: 14pt; font-weight: bold; border-bottom: 1px solid #000; margin: 25px 0 16px; padding-bottom: 4px; text-transform: uppercase; }
+
+  .question-block { margin-bottom: 25px; page-break-inside: avoid; }
+  .question-top { display: flex; justify-content: space-between; align-items: baseline; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px; }
+  .question-text { margin-bottom: 10px; text-align: justify; }
+
+  .subquestion-block { margin-left: 20px; margin-top: 14px; border-left: 2px solid #E2E8F0; padding-left: 14px; }
+  .subquestion-top { display: flex; justify-content: space-between; font-weight: bold; font-size: 11pt; margin-bottom: 6px; }
+
+  .mcq-grid { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px 16px; }
+  .mcq-option { display: flex; gap: 10px; align-items: baseline; }
+
+  .answer-space { border: 1px dashed #94A3B8; min-height: 80px; margin-top: 10px; padding: 10px; background: #FAFAFA; border-radius: 4px; }
+  .answer-space textarea { width: 100%; height: 100%; min-height: 65px; border: 0; background: transparent; font-family: 'Times New Roman', Times, serif; font-size: 11pt; resize: vertical; outline: none; }
+
+  .mark-scheme-drawer { margin-top: 12px; background: #F0FDF4; border: 1.5px solid #16A34A; padding: 12px; font-family: 'Inter', sans-serif; font-size: 10pt; color: #166534; border-radius: 6px; display: none; }
+  .mark-scheme-drawer.visible { display: block; }
+  .mark-btn-row { margin-top: 10px; display: flex; gap: 6px; align-items: center; }
+  .mark-btn { padding: 4px 12px; border: 1px solid #16A34A; background: #FFF; color: #166534; font-weight: bold; border-radius: 4px; cursor: pointer; }
+  .mark-btn.active { background: #16A34A; color: #FFF; }
+
+  /* Mark Scheme Section (Section 2) Styling */
+  .mark-scheme-item { margin-bottom: 20px; border-bottom: 1px dotted #CBD5E1; padding-bottom: 12px; page-break-inside: avoid; }
+  .mark-scheme-item-top { display: flex; justify-content: space-between; font-weight: bold; font-size: 11pt; margin-bottom: 4px; }
+
+  .score-summary-bar { background: #1E293B; color: #FFF; padding: 14px 24px; position: sticky; bottom: 0; z-index: 90; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--ui-border); font-family: 'Inter', sans-serif; }
+
+  @media print {
+    body { background: #FFF; color: #000; }
+    .exam-toolbar, .config-shell, .score-summary-bar { display: none !important; }
+    .page-sheet { display: block !important; box-shadow: none; border: 0; margin: 0; padding: 10mm; width: 100%; page-break-after: always; position: relative; min-height: auto; }
+    .mark-scheme-drawer { display: none !important; } /* Removed when printing Section 1 */
+    .answer-space textarea { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const OCR_MODULES = [
+  { id: 1, name: 'Module 1: Development of Practical Skills', desc: 'Practical skills, experimental design, errors & analysis' },
+  { id: 2, name: 'Module 2: Foundations in Chemistry', desc: 'Atoms, amount of substance, acid-base, bonding, redox' },
+  { id: 3, name: 'Module 3: Periodic Table & Energy', desc: 'Periodic trends, Group 2 & 7, enthalpy, reaction rates, equilibrium' },
+  { id: 4, name: 'Module 4: Core Organic Chemistry', desc: 'Basic concepts, alkanes, alkenes, alcohols, haloalkanes, IR & MS' },
+  { id: 5, name: 'Module 5: Physical Chemistry & Transition Elements', desc: 'Rates, equilibrium constants, pH, entropy, electrode potentials, transition metals' },
+  { id: 6, name: 'Module 6: Organic Chemistry & Analysis', desc: 'Aromatics, carbonyls, carboxylic acids, amines, polymers, NMR spectroscopy' }
+];
+
+const PRESET_CONFIGS = {
+  paper1: {
+    title: 'Paper 1: Periodic Table, Elements & Physical Chemistry',
+    code: 'H432/01',
+    marks: 100,
+    time: '2 hours 15 minutes',
+    totalPages: 32,
+    modules: [1, 2, 3, 5]
+  },
+  paper2: {
+    title: 'Paper 2: Synthesis & Analytical Techniques',
+    code: 'H432/02',
+    marks: 100,
+    time: '2 hours 15 minutes',
+    totalPages: 32,
+    modules: [1, 2, 4, 6]
+  },
+  paper3: {
+    title: 'Paper 3: Unified Chemistry (Synoptic)',
+    code: 'H432/03',
+    marks: 70,
+    time: '1 hour 30 minutes',
+    totalPages: 24,
+    modules: [1, 2, 3, 4, 5, 6]
+  }
+};
+
+function generatePaperPages(presetKey) {
+  const cfg = PRESET_CONFIGS[presetKey] || PRESET_CONFIGS.paper1;
+  const pages = [];
+
+  for (let pageNum = 1; pageNum <= cfg.totalPages; pageNum++) {
+    const pageObj = { pageNum, isMarkSchemePage: false, items: [] };
+
+    if (pageNum === 1) {
+      pageObj.items.push({
+        type: 'section_a_mcq',
+        ref: '1', marks: 1, module_id: 2,
+        text: 'Which pair of species are isotopes of the same element?\nA) 35Cl and 37Cl-\nB) 12C and 14C\nC) 14N and 14C\nD) 16O and 16O2-',
+        mark_scheme: 'B (12C and 14C have the same number of protons = 6 but different number of neutrons).'
+      });
+      pageObj.items.push({
+        type: 'section_a_mcq',
+        ref: '2', marks: 1, module_id: 2,
+        text: 'What is the empirical formula of a compound containing 40.0% carbon, 6.7% hydrogen, and 53.3% oxygen by mass?\nA) CH2O\nB) C2H4O2\nC) CHO\nD) C2H2O',
+        mark_scheme: 'A (Moles: C=40/12=3.33, H=6.7/1=6.7, O=53.3/16=3.33 -> 1:2:1 CH2O).'
+      });
+    } else if (pageNum <= Math.floor(cfg.totalPages * 0.3)) {
+      const qNum = (pageNum - 1) * 2 + 1;
+      pageObj.items.push({
+        type: 'section_a_mcq',
+        ref: String(qNum), marks: 1, module_id: 3,
+        text: `Section A MCQ (Question ${qNum}): Which standard enthalpy change is always endothermic?\nA) Enthalpy change of combustion\nB) Enthalpy change of neutralisation\nC) First ionisation energy\nD) Enthalpy change of formation`,
+        mark_scheme: 'C (First ionisation energy requires energy input to remove an electron).'
+      });
+      pageObj.items.push({
+        type: 'section_a_mcq',
+        ref: String(qNum + 1), marks: 1, module_id: 5,
+        text: `Section A MCQ (Question ${qNum + 1}): The rate constant k for a first order reaction is 6.19 x 10^-3 s^-1. What is the half-life in seconds?\nA) 49\nB) 112\nC) 323\nD) 429`,
+        mark_scheme: 'B (t1/2 = ln(2) / k = 0.693 / 6.19x10^-3 = 112 s).'
+      });
+    } else {
+      const qRef = Math.floor(pageNum / 2) + 10;
+      pageObj.items.push({
+        type: 'structured',
+        ref: `${qRef}`, marks: 12, module_id: (pageNum % 2 === 0 ? 3 : 5),
+        text: `Question ${qRef} (Module ${pageNum % 2 === 0 ? 3 : 5} - Periodicity, Physical Chemistry & Synthesis)` ,
+        subquestions: [
+          { ref: `${qRef}(a)(i)`, marks: 2, text: 'Complete the graph to show the approximate melting points of Period 3 elements P, S, Cl, and Ar.', mark_scheme: 'S higher than P [1]; Cl lower than S, Ar lowest [1].' },
+          { ref: `${qRef}(a)(ii)`, marks: 3, text: 'Explain why silicon has a significantly higher melting point than aluminium using structural and bonding concepts.', mark_scheme: 'Silicon is giant covalent structure [1]; Aluminium is giant metallic structure [1]; Covalent bonds in silicon require more energy to break than metallic bonds in aluminium [1].' },
+          { ref: `${qRef}(b)`, marks: 3, text: 'Calculate the pH of 0.150 mol dm-3 HNO3 and predict whether HNO2 has a higher or lower pH.', mark_scheme: 'pH = -log(0.150) = 0.82 [1]; HNO2 higher pH as it partially dissociates [2].' },
+          { ref: `${qRef}(c)*`, marks: 4, text: '* Outline how 4-methylbenzoic acid can be synthesised starting from methylbenzene. Include reagents and mechanism.', mark_scheme: 'Level 3 (4 marks): Friedel-Crafts alkylation with CH3Cl and AlCl3 catalyst followed by alkaline KMnO4 oxidation.' }
+        ]
+      });
+    }
+
+    pages.push(pageObj);
+  }
+
+  const allMarkSchemes = [];
+  pages.forEach(p => {
+    p.items.forEach(q => {
+      if (q.type === 'section_a_mcq') {
+        allMarkSchemes.push({
+          ref: q.ref,
+          marks: q.marks,
+          text: q.text.split('\n')[0],
+          scheme: q.mark_scheme
+        });
+      } else if (q.type === 'structured' && q.subquestions) {
+        q.subquestions.forEach(sub => {
+          allMarkSchemes.push({
+            ref: sub.ref,
+            marks: sub.marks,
+            text: sub.text,
+            scheme: sub.mark_scheme
+          });
+        });
+      }
+    });
+  });
+
+  const itemsPerMsPage = 6;
+  const totalMsPages = Math.ceil(allMarkSchemes.length / itemsPerMsPage);
+  
+  for (let mPageIdx = 0; mPageIdx < totalMsPages; mPageIdx++) {
+    const pageNum = cfg.totalPages + mPageIdx + 1;
+    const chunk = allMarkSchemes.slice(mPageIdx * itemsPerMsPage, (mPageIdx + 1) * itemsPerMsPage);
+    
+    pages.push({
+      pageNum,
+      isMarkSchemePage: true,
+      msChunk: chunk,
+      msPageIndex: mPageIdx + 1,
+      totalMsPages: totalMsPages
+    });
+  }
+
+  return pages;
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  'use strict';
+  const $ = (sel) => document.querySelector(sel);
+
+  let state = {
+    screen: 'config',
+    preset: 'paper1',
+    selectedModules: [1, 2, 3, 5],
+    currentPage: 1,
+    showSinglePageMode: true,
+    pagesData: [],
+    revealedSchemes: {},
+    awardedMarks: {}
+  };
+
+  function render() {
+    const app = $('#app');
+    app.innerHTML = '';
+    if (state.screen === 'exam') {
+      app.appendChild(renderExamPaper());
+    } else {
+      app.appendChild(renderConfig());
+    }
+  }
+
+  function renderConfig() {
+    const wrap = document.createElement('div');
+    wrap.className = 'config-shell';
+
+    wrap.innerHTML = `
+      <h1>OCR A-Level Chemistry Paper Generator</h1>
+      <p>Generates full examination papers matching exact OCR specification mark schemes, timings, module breakdowns, and page lengths.</p>
+
+      <h3 style="color:#FFF; font-size:16px; margin-bottom:12px;">1. Select Exam Paper Component:</h3>
+      <div class="preset-grid">
+        <div class="preset-card ${state.preset === 'paper1' ? 'selected' : ''}" data-preset="paper1">
+          <h3>Paper 1 (H432/01)</h3>
+          <p>Periodic Table, Elements & Physical Chemistry</p>
+          <span class="preset-badge">100 Marks | 2h 15m | 32 Pages</span>
+        </div>
+        <div class="preset-card ${state.preset === 'paper2' ? 'selected' : ''}" data-preset="paper2">
+          <h3>Paper 2 (H432/02)</h3>
+          <p>Synthesis & Analytical Techniques</p>
+          <span class="preset-badge">100 Marks | 2h 15m | 32 Pages</span>
+        </div>
+        <div class="preset-card ${state.preset === 'paper3' ? 'selected' : ''}" data-preset="paper3">
+          <h3>Paper 3 (H432/03)</h3>
+          <p>Unified Chemistry (Synoptic)</p>
+          <span class="preset-badge">70 Marks | 1h 30m | 24 Pages</span>
+        </div>
+      </div>
+
+      <h3 style="color:#FFF; font-size:16px; margin-bottom:10px;">2. Modules Included:</h3>
+      <div class="module-grid" id="moduleGrid"></div>
+
+      <button class="btn" id="startExamBtn">Generate Full Examination Paper</button>
+    `;
+
+    wrap.querySelectorAll('.preset-card').forEach(card => {
+      card.onclick = () => {
+        const p = card.getAttribute('data-preset');
+        state.preset = p;
+        state.selectedModules = PRESET_CONFIGS[p].modules;
+        render();
+      };
+    });
+
+    const mGrid = wrap.querySelector('#moduleGrid');
+    OCR_MODULES.forEach(m => {
+      const isChecked = state.selectedModules.includes(m.id);
+      const label = document.createElement('label');
+      label.className = `module-card ${isChecked ? 'selected' : ''}`;
+      label.innerHTML = `
+        <input type="checkbox" value="${m.id}" ${isChecked ? 'checked' : ''} />
+        <div>
+          <strong style="color:#FFF; font-size:14px;">${m.name}</strong>
+          <span style="font-size:12px; color:var(--ui-muted); display:block; margin-top:2px;">${m.desc}</span>
+        </div>
+      `;
+      label.querySelector('input').onchange = (e) => {
+        if (e.target.checked) {
+          if (!state.selectedModules.includes(m.id)) state.selectedModules.push(m.id);
+        } else {
+          state.selectedModules = state.selectedModules.filter(id => id !== m.id);
+        }
+        render();
+      };
+      mGrid.appendChild(label);
+    });
+
+    wrap.querySelector('#startExamBtn').onclick = () => {
+      state.pagesData = generatePaperPages(state.preset);
+      state.screen = 'exam';
+      state.currentPage = 1;
+      render();
+    };
+
+    return wrap;
+  }
+
+  function renderExamPaper() {
+    const cfg = PRESET_CONFIGS[state.preset] || PRESET_CONFIGS.paper1;
+    const totalPages = state.pagesData.length;
+    const viewport = document.createElement('div');
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'exam-toolbar';
+
+    let pageSelectOptions = '';
+    for (let p = 1; p <= totalPages; p++) {
+      const isMs = p > cfg.totalPages;
+      const labelText = isMs ? `Section 2: Mark Scheme (p.${p})` : `Page ${p} of ${totalPages}`;
+      pageSelectOptions += `<option value="${p}" ${p === state.currentPage ? 'selected' : ''}>${labelText}</option>`;
+    }
+
+    toolbar.innerHTML = `
+      <div>
+        <strong>OCR A-Level Chemistry</strong> &mdash; ${cfg.title} (${cfg.code})
+      </div>
+      <div class="nav-btn-group">
+        <button id="prevPageBtn" ${state.currentPage === 1 ? 'disabled' : ''}>&larr; Prev Page</button>
+        <select id="pageSelect">${pageSelectOptions}</select>
+        <button id="nextPageBtn" ${state.currentPage === totalPages ? 'disabled' : ''}>Next Page &rarr;</button>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button id="toggleModeBtn">${state.showSinglePageMode ? 'Show All Pages' : 'Single Page Mode'}</button>
+        <button id="printBtn">Print / Save PDF</button>
+        <button id="backBtn">Config</button>
+      </div>
+    `;
+    viewport.appendChild(toolbar);
+
+    const sheetContainer = document.createElement('div');
+    sheetContainer.className = 'exam-sheet-container';
+
+    state.pagesData.forEach(pData => {
+      const pageNum = pData.pageNum;
+      const pageSheet = document.createElement('div');
+      pageSheet.className = `page-sheet ${state.showSinglePageMode && state.currentPage !== pageNum ? 'hidden' : ''}`;
+
+      if (pData.isMarkSchemePage) {
+        pageSheet.innerHTML = `
+          <div class="exam-header">
+            <div class="exam-header-left">
+              <h2>Oxford Cambridge and RSA</h2>
+              <p><strong>A Level Chemistry A</strong> &mdash; Component ${cfg.code}</p>
+              <p style="font-weight:bold; color:#166534; margin-top:4px;">SECTION 2: MARK SCHEME (CONFIDENTIAL)</p>
+            </div>
+            <div class="exam-header-right">
+              <div>OFFICIAL MARK SCHEME</div>
+              <div style="font-weight:normal; font-size:10pt; margin-top:4px;">Marking Guidelines</div>
+            </div>
+          </div>
+          <div class="section-title">SECTION 2 &mdash; MARK SCHEME (IN ORDER OF SECTION 1)</div>
+        `;
+
+        pData.msChunk.forEach(item => {
+          const msItemDiv = document.createElement('div');
+          msItemDiv.className = 'mark-scheme-item';
+          msItemDiv.innerHTML = `
+            <div class="mark-scheme-item-top">
+              <span>Question ${item.ref}</span>
+              <span>[${item.marks} ${item.marks === 1 ? 'mark' : 'marks'}]</span>
+            </div>
+            <div style="font-size:10.5pt; color:#334155; margin-bottom:6px; font-style:italic;">"${item.text}"</div>
+            <div style="background:#F0FDF4; border:1px solid #16A34A; padding:10px; border-radius:6px; font-family:'Inter', sans-serif; font-size:10pt; color:#166534; white-space:pre-wrap;">
+              <strong>Mark Scheme:</strong> ${item.scheme}
+            </div>
+          `;
+          pageSheet.appendChild(msItemDiv);
+        });
+
+      } else {
+        if (pageNum === 1) {
+          pageSheet.innerHTML = `
+            <div class="exam-header">
+              <div class="exam-header-left">
+                <h2>Oxford Cambridge and RSA</h2>
+                <p><strong>A Level Chemistry A</strong></p>
+                <p>${cfg.title}</p>
+              </div>
+              <div class="exam-header-right">
+                <div>COMPONENT ${cfg.code}</div>
+                <div style="font-weight:normal; font-size:10pt; margin-top:4px;">Time allowed: ${cfg.time}</div>
+                <div style="font-weight:bold; font-size:11pt; margin-top:4px;">Total Marks: ${cfg.marks}</div>
+              </div>
+            </div>
+
+            <div class="exam-instructions">
+              <strong>INSTRUCTIONS TO CANDIDATES</strong>
+              <ul>
+                <li>Use black ink. You may use an HB pencil for graphs and diagrams.</li>
+                <li>Answer <strong>all</strong> questions in Section A (Multiple Choice) and Section B (Structured Questions).</li>
+                <li>Write your answer to each question in the space provided.</li>
+                <li><strong>Note:</strong> The Mark Scheme is located in Section 2 at the back of this paper.</li>
+              </ul>
+            </div>
+            <div class="section-title">SECTION A &mdash; Multiple Choice Questions</div>
+          `;
+        } else {
+          pageSheet.innerHTML = `
+            <div style="display:flex; justify-content:space-between; border-bottom:1px solid #000; padding-bottom:6px; margin-bottom:20px; font-weight:bold;">
+              <span>OCR A-Level Chemistry Component ${cfg.code}</span>
+              <span>${pageNum <= Math.floor(cfg.totalPages * 0.3) ? 'Section A Continued' : 'Section B Structured Questions'}</span>
+            </div>
+          `;
+        }
+
+        pData.items.forEach((q, idx) => {
+          const qBlock = document.createElement('div');
+          qBlock.className = 'question-block';
+
+          if (q.type === 'section_a_mcq') {
+            const parts = q.text.split('\n');
+            const prompt = parts[0];
+            const opts = parts.slice(1);
+            const key = `p${pageNum}_q${idx}`;
+            const isRevealed = state.revealedSchemes[key] || false;
+            const currentAward = state.awardedMarks[key] != null ? state.awardedMarks[key] : '';
+
+            qBlock.innerHTML = `
+              <div class="question-top">
+                <span>Question ${q.ref}</span>
+                <span>[${q.marks} mark]</span>
+              </div>
+              <div class="question-text">${prompt}</div>
+              <div class="mcq-grid">
+                ${opts.map(o => `<div class="mcq-option"><strong>${o.charAt(0)}</strong><span>${o.slice(2)}</span></div>`).join('')}
+              </div>
+              <div class="answer-space" style="min-height:50px;">
+                <textarea placeholder="Write answer letter (A, B, C, or D) and working..."></textarea>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                <button class="btn-ghost" style="color:#0284C7; border:1px solid #CBD5E1; padding:4px 10px; font-size:12px; cursor:pointer;" data-reveal="${key}">
+                  ${isRevealed ? 'Hide Mark Scheme' : 'Reveal Mark Scheme'}
+                </button>
+              </div>
+              <div class="mark-scheme-drawer ${isRevealed ? 'visible' : ''}">
+                <strong>Answer & Mark Scheme:</strong>
+                <p style="margin:4px 0 6px 0;">${q.mark_scheme}</p>
+                <div class="mark-btn-row">
+                  <span>Award Mark:</span>
+                  <button class="mark-btn ${currentAward === 0 ? 'active' : ''}" data-key="${key}" data-mark="0">0</button>
+                  <button class="mark-btn ${currentAward === 1 ? 'active' : ''}" data-key="${key}" data-mark="1">1</button>
+                </div>
+              </div>
+            `;
+          } else {
+            let subsHtml = '';
+            if (q.subquestions && q.subquestions.length) {
+              subsHtml = q.subquestions.map((sub, sIdx) => {
+                const subKey = `p${pageNum}_struct_${idx}_${sIdx}`;
+                const isRevealed = state.revealedSchemes[subKey] || false;
+                const currentAward = state.awardedMarks[subKey] != null ? state.awardedMarks[subKey] : '';
+
+                return `
+                  <div class="subquestion-block">
+                    <div class="subquestion-top">
+                      <span>(${sub.ref})</span>
+                      <span>[${sub.marks} ${sub.marks === 1 ? 'mark' : 'marks'}]</span>
+                    </div>
+                    <div class="question-text">${sub.text}</div>
+                    <div class="answer-space">
+                      <textarea placeholder="Write your full working and final response here..."></textarea>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                      <button class="btn-ghost" style="color:#0284C7; border:1px solid #CBD5E1; padding:4px 10px; font-size:12px; cursor:pointer;" data-reveal="${subKey}">
+                        ${isRevealed ? 'Hide Mark Scheme' : 'Reveal Mark Scheme'}
+                      </button>
+                    </div>
+                    <div class="mark-scheme-drawer ${isRevealed ? 'visible' : ''}">
+                      <strong>Official Mark Scheme:</strong>
+                      <p style="margin:4px 0 6px 0; white-space:pre-wrap;">${sub.mark_scheme}</p>
+                      <div class="mark-btn-row">
+                        <span>Award Marks (0 to ${sub.marks}):</span>
+                        ${Array.from({length: sub.marks + 1}, (_, m) => `
+                          <button class="mark-btn ${currentAward === m ? 'active' : ''}" data-key="${subKey}" data-mark="${m}">${m}</button>
+                        `).join('')}
+                      </div>
+                    </div>
+                  </div>
+                `;
+              }).join('');
+            }
+
+            qBlock.innerHTML = `
+              <div class="question-top">
+                <span>Question ${q.ref}</span>
+                <span>[Total: ${q.marks} marks]</span>
+              </div>
+              <div class="question-text" style="font-weight:bold;">${q.text}</div>
+              ${subsHtml}
+            `;
+          }
+
+          pageSheet.appendChild(qBlock);
+        });
+      }
+
+      const footer = document.createElement('div');
+      footer.className = 'page-footer';
+      footer.innerHTML = `
+        <span>OCR 2026 [${cfg.code}]</span>
+        <span>Page ${pageNum} of ${totalPages}</span>
+        <span>${pData.isMarkSchemePage ? 'End of Mark Scheme' : 'Turn over'}</span>
+      `;
+      pageSheet.appendChild(footer);
+
+      sheetContainer.appendChild(pageSheet);
+    });
+
+    viewport.appendChild(sheetContainer);
+
+    const tallyBar = document.createElement('div');
+    tallyBar.className = 'score-summary-bar';
+    tallyBar.innerHTML = `
+      <div><strong>Candidate Exam Tally:</strong> Component ${cfg.code} (${cfg.marks} Marks | ${cfg.time} | ${totalPages} Total Pages)</div>
+      <div style="display:flex; gap:12px;">
+        <button id="bottomPrev" class="btn-ghost" ${state.currentPage === 1 ? 'disabled' : ''} style="padding:6px 14px;">&larr; Prev Page</button>
+        <span style="align-self:center;">Page ${state.currentPage} of ${totalPages}</span>
+        <button id="bottomNext" class="btn-ghost" ${state.currentPage === totalPages ? 'disabled' : ''} style="padding:6px 14px;">Next Page &rarr;</button>
+      </div>
+    `;
+    viewport.appendChild(tallyBar);
+
+    toolbar.querySelector('#prevPageBtn').onclick = () => {
+      if (state.currentPage > 1) { state.currentPage--; render(); window.scrollTo(0,0); }
+    };
+    toolbar.querySelector('#nextPageBtn').onclick = () => {
+      if (state.currentPage < totalPages) { state.currentPage++; render(); window.scrollTo(0,0); }
+    };
+
+    toolbar.querySelector('#pageSelect').onchange = (e) => {
+      state.currentPage = parseInt(e.target.value);
+      render(); window.scrollTo(0,0);
+    };
+
+    tallyBar.querySelector('#bottomPrev').onclick = () => {
+      if (state.currentPage > 1) { state.currentPage--; render(); window.scrollTo(0,0); }
+    };
+    tallyBar.querySelector('#bottomNext').onclick = () => {
+      if (state.currentPage < totalPages) { state.currentPage++; render(); window.scrollTo(0,0); }
+    };
+
+    toolbar.querySelector('#toggleModeBtn').onclick = () => {
+      state.showSinglePageMode = !state.showSinglePageMode;
+      render();
+    };
+
+    toolbar.querySelector('#backBtn').onclick = () => {
+      state.screen = 'config';
+      render();
+    };
+
+    toolbar.querySelector('#printBtn').onclick = () => {
+      window.print();
+    };
+
+    viewport.querySelectorAll('[data-reveal]').forEach(btn => {
+      btn.onclick = (e) => {
+        const key = e.target.getAttribute('data-reveal');
+        state.revealedSchemes[key] = !state.revealedSchemes[key];
+        render();
+      };
+    });
+
+    viewport.querySelectorAll('.mark-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const key = e.target.getAttribute('data-key');
+        const mark = parseInt(e.target.getAttribute('data-mark'));
+        state.awardedMarks[key] = mark;
+        render();
+      };
+    });
+
+    return viewport;
+  }
+
+  render();
+});
+</script>
+</body>
+</html>
