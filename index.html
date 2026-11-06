@@ -1443,12 +1443,16 @@ const timeForPaper = (n) => (n === 3 ? '1 hour 30 minutes' : '2 hours 15 minutes
 async function loadBank() {
   DB.status = 'loading'; DB.error = null;
   const sb = await getSupabase();
-  const [modules, papers, topics, questions, links] = await Promise.all([
+  const [modules, papers, topics, questions, links, contexts, contextLinks] = await Promise.all([
     fetchAll(sb, 'modules', 'number,name,sort_order', ['sort_order']),
     fetchAll(sb, 'papers', 'id,year,series,paper_number,paper_title', ['year', 'paper_number']),
     fetchAll(sb, 'topics', 'id,code,module_number,title,sort_order,scheme,section,section_title,revision_guide', ['sort_order']),
-    fetchAll(sb, 'questions', 'id,paper_id,year,module_id,question_ref,marks,question_type,delivery_mode,question_text,mark_scheme,image_path,mark_scheme_image_path,revise_note', ['id']),
-    fetchAll(sb, 'question_topics', 'question_id,topic_id,is_primary', ['question_id', 'topic_id'])
+    fetchAll(sb, 'questions', 'id,paper_id,year,module_id,question_ref,marks,question_type,delivery_mode,question_text,part_text,mark_scheme,image_path,mark_scheme_image_path,revise_note', ['id'])
+      .catch(() => fetchAll(sb, 'questions', 'id,paper_id,year,module_id,question_ref,marks,question_type,delivery_mode,question_text,mark_scheme,image_path,mark_scheme_image_path,revise_note', ['id'])),
+    fetchAll(sb, 'question_topics', 'question_id,topic_id,is_primary', ['question_id', 'topic_id']),
+    // Shared context stored once (optional: the page splits context itself if these are missing).
+    fetchAll(sb, 'question_contexts', 'id,paper_id,question_number,sort_order,context_text', ['id']).catch(() => null),
+    fetchAll(sb, 'question_context_links', 'question_id,context_id,position', ['question_id', 'context_id']).catch(() => null)
   ]);
   DB.topicsById = {}; topics.forEach(t => { DB.topicsById[t.id] = t; });
   const qById = {};
@@ -1460,6 +1464,12 @@ async function loadBank() {
     else if (l.is_primary || !q.plan) q.plan = t;
   });
   questions.forEach(q => { if (!q.ocrTopic) q.ocrTopic = q.ocrTopics[0] || null; });
+  DB.hasContexts = !!(contexts && contextLinks);
+  if (DB.hasContexts) {
+    const ctxById = {}; contexts.forEach(c => { ctxById[c.id] = c; });
+    questions.forEach(q => { q.ctx = []; });
+    contextLinks.slice().sort((a, b) => a.position - b.position).forEach(l => { const q = qById[l.question_id], c = ctxById[l.context_id]; if (q && c) q.ctx.push(c); });
+  }
   // The specification (modules and topics) now comes from the database.
   const ocr = topics.filter(t => t.scheme === 'ocr');
   if (ocr.length) {
@@ -1521,9 +1531,29 @@ function dbMcq(q, keepRef) {
   const p = DB.papersById[q.paper_id];
   return { topic: q.ocrTopic, ref: keepRef ? qNumOf(q.question_ref) : undefined, stem: q.question_text, figure: imageFig(q.image_path, `Figure for ${paperLabel(p)} ${q.question_ref}`), options: ['A', 'B', 'C', 'D'].map(l => ({ letter: l, text: '' })), answer: mcqLetter(q.mark_scheme), mark_scheme: q.mark_scheme, msImage: imageFig(q.mark_scheme_image_path, 'Mark scheme image'), db: q, sourceTag: `${paperLabel(p)} ${q.question_ref}` };
 }
+// Use the context stored once in question_contexts: each context is shown before the first
+// displayed part that needs it, and skipped if an already-shown context contains it word for word.
+function contextSplit(items) {
+  const norm = (t) => String(t).replace(/\s+/g, ' ').trim().toLowerCase();
+  const shownIds = new Set(), shownText = [];
+  let shared = '';
+  const rest = items.map((q, i) => {
+    const need = (q.ctx || []).filter(c => {
+      if (shownIds.has(c.id)) return false;
+      const n = norm(c.context_text);
+      if (shownText.some(t => t.includes(n))) { shownIds.add(c.id); return false; }
+      shownIds.add(c.id); shownText.push(n); return true;
+    });
+    const ctxText = need.map(c => c.context_text).join('\n\n');
+    if (i === 0) { shared = ctxText; return q.part_text; }
+    return [ctxText, q.part_text].filter(Boolean).join('\n\n');
+  });
+  return { shared, rest };
+}
 function dbStructured(group, keepRef) {
   const p = DB.papersById[group.paperId];
-  const { shared, rest } = splitShared(group.items.map(q => q.question_text));
+  const stored = DB.hasContexts && group.items.every(q => q.part_text != null && Array.isArray(q.ctx));
+  const { shared, rest } = stored ? contextSplit(group.items) : splitShared(group.items.map(q => q.question_text));
   const seen = new Set();
   const parts = group.items.map((q, i) => {
     let figure = null;
