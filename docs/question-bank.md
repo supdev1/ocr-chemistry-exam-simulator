@@ -7,7 +7,9 @@ Shared by every app in the **Chemistry revision** project. Supabase project **Ch
 | App | Where | Reads | Writes |
 |---|---|---|---|
 | Exam simulator | GitHub `supdev1/ocr-chemistry-exam-simulator`, branch `main`; live at https://ocr-chemistry-exam-simulator.onrender.com | modules, papers, topics, questions (incl. `part_text`), question_topics, question_contexts, question_context_links, storage `question-images` | `attempts` (insert, then update when a mark is overridden) |
-| Chemistry Revision practice app | Temporarily on branch `practice-app` of the simulator repo; moving to its own repository. Do not push it to the simulator's `main` — that replaces the live simulator. | topics (`scheme = 'plan'`), question_topics, questions | — |
+| Chemistry Revision practice app | GitHub `supdev1/OCR-A-Level-Revision-Quiz`, branch `main`; live at https://ocr-a-level-revision-quiz.onrender.com | topics (`scheme = 'plan'`), question_topics, questions | — |
+
+Each app has its own repository and Render site. Upload each app's `index.html` only to its own repository — uploading to the other one replaces that live site.
 
 ## Tables
 
