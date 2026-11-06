@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/smiles-drawer@2.4.1/dist/smiles-drawer.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" defer></script>
 <style>
   :root {
     --paper-bg: #FFFFFF;
@@ -195,7 +196,27 @@
   /* Figures */
   .exam-figure { margin: 12px auto 14px; text-align: center; page-break-inside: avoid; }
   .exam-figure svg.fig-svg { width: 100%; max-width: 150mm; height: auto; display: block; margin: 0 auto; }
-  .exam-figure img.fig-img { max-width: 100%; max-height: 110mm; }
+  .exam-figure img.fig-img { max-width: 100%; max-height: 125mm; width: auto; height: auto; }
+  .ms-figure { margin: 8px 0 4px; text-align: left; }
+  .ms-figure img.fig-img { max-width: 100%; max-height: 90mm; width: auto; height: auto; border: 1px solid #BBF7D0; background: #FFF; }
+  .q-table { border-collapse: collapse; margin: 8px 0 10px; font-size: 11pt; }
+  .q-table th, .q-table td { border: 1px solid #000; padding: 3px 10px; text-align: center; }
+  .q-table th { font-weight: bold; background: #F8FAFC; }
+  .mark-scheme-drawer .q-table, .mark-scheme-item .q-table { font-size: 9.5pt; }
+  .mark-scheme-drawer .q-table td, .mark-scheme-item .q-table td { border-color: #16A34A; }
+  .mcq-letters { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 12px 16px; }
+  .mcq-letters .mcq-option { padding: 2px; }
+  .source-tag { font-weight: normal; font-size: 9pt; color: #64748B; font-family: 'Inter', sans-serif; margin-left: 6px; }
+  .self-mark-note { margin-top: 10px; padding: 10px 12px; border: 1px dashed #64748B; background: #F8FAFC; border-radius: 6px; font-family: 'Inter', sans-serif; font-size: 10pt; color: #334155; }
+  .saved-tag { font-family: 'Inter', sans-serif; font-size: 9pt; margin-top: 4px; color: #15803D; }
+  .saved-tag.err { color: #B91C1C; }
+  .db-opts { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--ui-border); border-radius: 10px; background: rgba(15,23,42,0.5); font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .db-opts label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; cursor: pointer; }
+  .db-opts select { background: #0F172A; color: #FFF; border: 1px solid var(--ui-border); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px; max-width: 100%; }
+  .db-opts input { accent-color: var(--action); }
+  .topic-chip .tcount { color: var(--ui-muted); font-size: 11px; margin-left: auto; padding-left: 6px; white-space: nowrap; }
+  .preset-card.disabled { opacity: 0.55; cursor: not-allowed; }
+  .account-row input[type=email], .account-row input[type=password] { flex: 1; min-width: 160px; background: #0F172A; color: #FFF; border: 1px solid var(--ui-border); border-radius: 6px; padding: 7px 10px; font: inherit; font-size: 14px; }
   .exam-figure figcaption { font-size: 10pt; margin-top: 4px; font-style: italic; }
   .fig-table { border-collapse: collapse; margin: 0 auto; font-size: 11pt; }
   .fig-table th, .fig-table td { border: 1px solid #000; padding: 4px 12px; text-align: center; }
@@ -298,11 +319,30 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 // Escape, then re-allow a small set of formatting tags. Safe for content written by Claude.
-function fmt(s) {
+function fmtInline(s) {
   let h = esc(s);
   h = h.replace(/&lt;(\/?)(sub|sup|b|i|em|strong|u)&gt;/gi, '<$1$2>').replace(/&lt;br\s*\/?&gt;/gi, '<br>');
-  h = h.replace(/&lt;=&gt;/g, '⇌').replace(/-&gt;/g, '→').replace(/\n/g, '<br>');
-  return h;
+  return h.replace(/&lt;=&gt;/g, '⇌').replace(/-&gt;/g, '→');
+}
+// Also turns "a | b | c" line blocks into tables, "* " lines into bullets and keeps indentation.
+function fmt(s) {
+  const lines = String(s == null ? '' : s).split('\n');
+  const out = [];
+  const isRow = (l) => l != null && / \| /.test(l) && l.split('|').length >= 2;
+  for (let i = 0; i < lines.length; i++) {
+    if (isRow(lines[i]) && isRow(lines[i + 1])) {
+      const rows = [];
+      while (i < lines.length && isRow(lines[i])) rows.push(lines[i++].split('|').map(c => c.trim()));
+      i--;
+      const [head, ...body] = rows;
+      out.push({ t: `<table class="q-table"><thead><tr>${head.map(c => `<th>${fmtInline(c)}</th>`).join('')}</tr></thead><tbody>${body.map(r => `<tr>${r.map(c => `<td>${fmtInline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`, block: true });
+      continue;
+    }
+    const m = lines[i].match(/^(\s*)(\*\s+)?(.*)$/);
+    const indent = m[1].replace(/\t/g, '  ').length;
+    out.push({ t: `${indent ? '&nbsp;'.repeat(indent * 2) : ''}${m[2] ? '• ' : ''}${fmtInline(m[3])}` });
+  }
+  return out.map((o, i) => o.t + (i < out.length - 1 && !o.block ? '<br>' : '')).join('');
 }
 const plain = (s) => String(s == null ? '' : s).replace(/<[^>]+>/g, '');
 
@@ -623,7 +663,12 @@ function figRawSvg(f) {
   return `<img class="fig-img" alt="${esc(plain(f.caption || 'Diagram'))}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}">`;
 }
 
-const FIGURE_RENDERERS = { graph: figGraph, spectrum: figSpectrum, structure: figStructure, energy_profile: figEnergyProfile, table: figTable, cell: figCell, tlc: figTLC, svg: figRawSvg };
+// Question images from the Supabase bank (signed URLs, preloaded so their size is known).
+function figImage(f) {
+  if (!f.src || f.failed) return `<span class="fig-fallback">Image could not be loaded${f.path ? ` (${esc(f.path.split('/').pop())})` : ''}</span>`;
+  return `<img class="fig-img" src="${esc(f.src)}"${f.w ? ` width="${f.w}" height="${f.h}"` : ''} alt="${esc(f.alt || 'Figure for this question')}">`;
+}
+const FIGURE_RENDERERS = { image: figImage, graph: figGraph, spectrum: figSpectrum, structure: figStructure, energy_profile: figEnergyProfile, table: figTable, cell: figCell, tlc: figTLC, svg: figRawSvg };
 
 function figureBody(f) {
   const kind = String(f.kind || f.type || '').toLowerCase();
@@ -969,12 +1014,13 @@ function normalisePaper(cfg, topics, mcqs, structured, source) {
     const letters = ['A', 'B', 'C', 'D'];
     const options = (q.options || []).slice(0, 4).map((o, j) => (typeof o === 'string' ? { letter: letters[j], text: o } : { letter: (o.letter || letters[j]).toUpperCase().slice(0, 1), text: o.text || '', smiles: o.smiles || '' }));
     const answer = String(q.answer || '').trim().toUpperCase().charAt(0);
-    return { id: `mcq_${i}`, ref: String(n), type: 'mcq', topic: q.topic, marks: 1, stem: q.stem || q.text || '', figure: q.figure || null, options, answer, mark_scheme: q.mark_scheme || `${answer}` };
+    return { id: `mcq_${i}`, ref: q.ref || String(n), type: 'mcq', topic: q.topic, marks: 1, stem: q.stem || q.text || '', figure: q.figure || null, options, answer, mark_scheme: q.mark_scheme || `${answer}`, db: q.db || null, msImage: q.msImage || null, sourceTag: q.sourceTag || '' };
   });
   const sOut = structured.map((q, i) => {
     n++;
-    const parts = relabelParts((q.parts || []).map(p => ({ label: p.label || '', topic: p.topic || q.topic, marks: Math.max(1, parseInt(p.marks, 10) || 1), text: p.text || '', figure: p.figure || null, mark_scheme: p.mark_scheme || '' })));
-    return { id: `sq_${i}`, ref: String(n), type: 'structured', topic: q.topic || (parts[0] && parts[0].topic), stem: q.stem || '', figure: q.figure || null, parts, marks: parts.reduce((a, p) => a + p.marks, 0) };
+    const mapped = (q.parts || []).map(p => ({ label: p.label || '', topic: p.topic || q.topic, marks: Math.max(1, parseInt(p.marks, 10) || 1), text: p.text || '', figure: p.figure || null, mark_scheme: p.mark_scheme || '', db: p.db || null, msImage: p.msImage || null, selfMark: !!p.selfMark }));
+    const parts = q.keepLabels ? mapped : relabelParts(mapped);
+    return { id: `sq_${i}`, ref: q.ref || String(n), type: 'structured', topic: q.topic || (parts[0] && parts[0].topic), stem: q.stem || '', figure: q.figure || null, parts, marks: parts.reduce((a, p) => a + p.marks, 0), sourceTag: q.sourceTag || '' };
   });
   const total = mcqOut.length + sOut.reduce((a, q) => a + q.marks, 0);
   return { cfg, topics, mcqs: mcqOut, structured: sOut, total, source };
@@ -998,8 +1044,8 @@ function buildBlocks(paper) {
 }
 function msItems(paper) {
   const ms = [];
-  paper.mcqs.forEach(q => ms.push({ ref: q.ref, marks: 1, text: plain(q.stem), scheme: q.mark_scheme && !q.mark_scheme.startsWith(q.answer) ? `${q.answer} — ${q.mark_scheme}` : (q.mark_scheme || q.answer) }));
-  paper.structured.forEach(q => q.parts.forEach(p => ms.push({ ref: `${q.ref}${p.label}`, marks: p.marks, text: plain(p.text), scheme: p.mark_scheme })));
+  paper.mcqs.forEach(q => ms.push({ ref: q.ref, marks: 1, text: plain(q.stem), scheme: q.mark_scheme && !q.mark_scheme.startsWith(q.answer) ? `${q.answer} — ${q.mark_scheme}` : (q.mark_scheme || q.answer), msImage: q.msImage }));
+  paper.structured.forEach(q => q.parts.forEach(p => ms.push({ ref: `${q.ref}${p.label}`, marks: p.marks, text: plain(p.text), scheme: p.mark_scheme, msImage: p.msImage })));
   return ms;
 }
 function packPages(items, height, firstCap, cap, keepWithNext, startExtra) {
@@ -1354,6 +1400,186 @@ function keywordMark(userText, schemeText, maxMarks) {
 }
 
 /* ============================================================
+   6b. SUPABASE QUESTION BANK (past-paper questions, topics, images, saved attempts)
+   ============================================================ */
+const SUPABASE_URL = 'https://xnwdrahlkndisnxsfdji.supabase.co';
+// Public (anon) key: safe to publish. Row-level security only allows reading the bank and each student's own attempts.
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhud2RyYWhsa25kaXNueHNmZGppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM1NTgxMzYsImV4cCI6MjEwOTEzNDEzNn0.xaZTo9nEypM8jcfPZ1YdHOBDcZpi6yV2xpSV3KD7Zxs';
+const IMAGE_BUCKET = 'question-images';
+const DB = { status: 'idle', error: null, questions: [], papers: [], papersById: {}, byPaper: {}, topicsById: {}, countByTopic: {} };
+let sbClient = null;
+function waitFor(test, ms) {
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    (function poll() { if (test()) return resolve(); if (Date.now() - t0 > ms) return reject(new Error('timed out')); setTimeout(poll, 100); })();
+  });
+}
+async function getSupabase() {
+  if (sbClient) return sbClient;
+  await waitFor(() => window.supabase && window.supabase.createClient, 20000).catch(() => { throw new Error('The Supabase library did not load. Check your internet connection.'); });
+  sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'ocrchem.auth' } });
+  return sbClient;
+}
+async function fetchAll(sb, table, columns, orderCols) {
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    let q = sb.from(table).select(columns);
+    orderCols.forEach(c => { q = q.order(c, { ascending: true }); });
+    const { data, error } = await q.range(from, from + 999);
+    if (error) throw new Error(`Could not load ${table}: ${error.message}`);
+    rows.push(...data);
+    if (data.length < 1000) break;
+  }
+  return rows;
+}
+const codeCmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+const qNumOf = (ref) => ((String(ref).match(/^Q(\d+)/) || [])[1] || '');
+const refSuffix = (ref) => String(ref).replace(/^Q\d+/, '');
+const mcqLetter = (ms) => ((String(ms || '').match(/^\s*([A-D])\b/) || [])[1] || '');
+const isDbMcq = (q) => q.question_type === 'mcq' && !!mcqLetter(q.mark_scheme);
+const paperLabel = (p) => (p ? `${p.series || ''} ${p.year} Paper ${p.paper_number}`.trim() : '');
+const timeForPaper = (n) => (n === 3 ? '1 hour 30 minutes' : '2 hours 15 minutes');
+
+async function loadBank() {
+  DB.status = 'loading'; DB.error = null;
+  const sb = await getSupabase();
+  const [modules, papers, topics, questions, links] = await Promise.all([
+    fetchAll(sb, 'modules', 'number,name,sort_order', ['sort_order']),
+    fetchAll(sb, 'papers', 'id,year,series,paper_number,paper_title', ['year', 'paper_number']),
+    fetchAll(sb, 'topics', 'id,code,module_number,title,sort_order,scheme,section,section_title,revision_guide', ['sort_order']),
+    fetchAll(sb, 'questions', 'id,paper_id,year,module_id,question_ref,marks,question_type,delivery_mode,question_text,mark_scheme,image_path,mark_scheme_image_path,revise_note', ['id']),
+    fetchAll(sb, 'question_topics', 'question_id,topic_id,is_primary', ['question_id', 'topic_id'])
+  ]);
+  DB.topicsById = {}; topics.forEach(t => { DB.topicsById[t.id] = t; });
+  const qById = {};
+  questions.forEach(q => { q.ocrTopics = []; q.ocrTopic = null; q.plan = null; qById[q.id] = q; });
+  links.forEach(l => {
+    const q = qById[l.question_id], t = DB.topicsById[l.topic_id];
+    if (!q || !t) return;
+    if (t.scheme === 'ocr') { if (!q.ocrTopics.includes(t.code)) q.ocrTopics.push(t.code); if (l.is_primary) q.ocrTopic = t.code; }
+    else if (l.is_primary || !q.plan) q.plan = t;
+  });
+  questions.forEach(q => { if (!q.ocrTopic) q.ocrTopic = q.ocrTopics[0] || null; });
+  // The specification (modules and topics) now comes from the database.
+  const ocr = topics.filter(t => t.scheme === 'ocr');
+  if (ocr.length) {
+    OCR_MODULES.forEach(m => {
+      const mod = modules.find(x => x.number === m.id);
+      if (mod) m.name = `Module ${m.id}: ${mod.name}`;
+      const ts = ocr.filter(t => t.module_number === m.id).sort((a, b) => codeCmp(a.code, b.code));
+      if (ts.length) m.topics = ts.map(t => [t.code, t.title]);
+    });
+    Object.keys(TOPIC_INDEX).forEach(k => delete TOPIC_INDEX[k]);
+    OCR_MODULES.forEach(m => m.topics.forEach(([id, name]) => { TOPIC_INDEX[id] = { id, name, module: m.id }; }));
+    ALL_TOPIC_IDS.splice(0, ALL_TOPIC_IDS.length, ...Object.keys(TOPIC_INDEX).sort(codeCmp));
+  }
+  DB.questions = questions.filter(q => q.question_text);
+  DB.papers = papers;
+  DB.papersById = {}; papers.forEach(p => { DB.papersById[p.id] = p; });
+  DB.byPaper = {}; DB.questions.forEach(q => { (DB.byPaper[q.paper_id] = DB.byPaper[q.paper_id] || []).push(q); });
+  DB.countByTopic = {}; DB.questions.forEach(q => { if (q.ocrTopic) DB.countByTopic[q.ocrTopic] = (DB.countByTopic[q.ocrTopic] || 0) + 1; });
+  DB.status = 'ready';
+}
+
+const imageFig = (path, alt) => (path ? { kind: 'image', path, alt } : null);
+// Split shared opening paragraphs (the question's context) from each part's own text.
+function splitShared(texts) {
+  if (texts.length < 2) return { shared: '', rest: texts };
+  const paras = texts.map(t => String(t).split(/\n{2,}/));
+  let k = 0;
+  while (paras.every(p => p.length > k + 1 && p[k].trim() === paras[0][k].trim())) k++;
+  return { shared: paras[0].slice(0, k).join('\n\n'), rest: paras.map(p => p.slice(k).join('\n\n')) };
+}
+function groupDbQuestions(qs) {
+  const groups = [], index = {};
+  qs.slice().sort((a, b) => a.id - b.id).forEach(q => {
+    const key = `${q.paper_id}|${qNumOf(q.question_ref)}`;
+    if (!index[key]) { index[key] = { key, paperId: q.paper_id, num: qNumOf(q.question_ref), items: [] }; groups.push(index[key]); }
+    index[key].items.push(q);
+  });
+  return groups;
+}
+function dbMcq(q, keepRef) {
+  const p = DB.papersById[q.paper_id];
+  return { topic: q.ocrTopic, ref: keepRef ? qNumOf(q.question_ref) : undefined, stem: q.question_text, figure: imageFig(q.image_path, `Figure for ${paperLabel(p)} ${q.question_ref}`), options: ['A', 'B', 'C', 'D'].map(l => ({ letter: l, text: '' })), answer: mcqLetter(q.mark_scheme), mark_scheme: q.mark_scheme, msImage: imageFig(q.mark_scheme_image_path, 'Mark scheme image'), db: q, sourceTag: `${paperLabel(p)} ${q.question_ref}` };
+}
+function dbStructured(group, keepRef) {
+  const p = DB.papersById[group.paperId];
+  const { shared, rest } = splitShared(group.items.map(q => q.question_text));
+  const seen = new Set();
+  const parts = group.items.map((q, i) => {
+    let figure = null;
+    if (q.image_path && !seen.has(q.image_path)) { seen.add(q.image_path); figure = imageFig(q.image_path, `Figure for ${paperLabel(p)} ${q.question_ref}`); }
+    return { label: refSuffix(q.question_ref), topic: q.ocrTopic, marks: q.marks, text: rest[i] || q.question_text, figure, mark_scheme: q.mark_scheme || '', msImage: imageFig(q.mark_scheme_image_path, 'Mark scheme image'), selfMark: q.delivery_mode === 'download_only', db: q };
+  });
+  return { topic: parts[0].topic, ref: keepRef ? group.num : undefined, stem: shared, parts, keepLabels: true, sourceTag: `${paperLabel(p)} Q${group.num}` };
+}
+
+// A paper of past-paper questions on the chosen topics.
+function buildPaperFromDb(cfg, topics, includeDrawing) {
+  const sel = new Set(topics);
+  const eligible = DB.questions.filter(q => sel.has(q.ocrTopic) && (includeDrawing || q.delivery_mode !== 'download_only'));
+  const byTopic = {};
+  shuffle(eligible.filter(isDbMcq)).forEach(q => { (byTopic[q.ocrTopic] = byTopic[q.ocrTopic] || []).push(q); });
+  const mcqs = [];
+  while (mcqs.length < cfg.mcq && Object.values(byTopic).some(l => l.length)) {
+    shuffle(Object.keys(byTopic)).forEach(t => { if (mcqs.length < cfg.mcq && byTopic[t].length) mcqs.push(byTopic[t].shift()); });
+  }
+  mcqs.sort((a, b) => codeCmp(a.ocrTopic, b.ocrTopic) || a.id - b.id);
+  const target = cfg.marks - mcqs.length;
+  const chosen = [];
+  let total = 0;
+  shuffle(groupDbQuestions(eligible.filter(q => !isDbMcq(q)))).forEach(g => {
+    const marks = g.items.reduce((a, q) => a + q.marks, 0);
+    if (total + marks > target) return;
+    chosen.push(g); total += marks;
+  });
+  chosen.sort((a, b) => codeCmp(a.items[0].ocrTopic, b.items[0].ocrTopic) || a.items[0].id - b.items[0].id);
+  const paper = normalisePaper(cfg, topics, mcqs.map(q => dbMcq(q, false)), chosen.map(g => dbStructured(g, false)), 'db');
+  paper.available = { questions: eligible.length, marks: eligible.reduce((a, q) => a + q.marks, 0) };
+  return paper;
+}
+// A complete past paper, in its original order and numbering.
+function buildFullPastPaper(paperId) {
+  const p = DB.papersById[paperId];
+  const qs = (DB.byPaper[paperId] || []).slice().sort((a, b) => a.id - b.id);
+  const title = String(p.paper_title || '').replace(/^H432\/0\d\s*/, '');
+  const cfg = { title: `${paperLabel(p)}: ${title}`, short: title, code: `H432/0${p.paper_number}`, marks: qs.reduce((a, q) => a + q.marks, 0), mcq: qs.filter(isDbMcq).length, time: timeForPaper(p.paper_number), modules: (PRESET_CONFIGS[`paper${p.paper_number}`] || {}).modules || [] };
+  const topics = [...new Set(qs.map(q => q.ocrTopic).filter(Boolean))].sort(codeCmp);
+  const paper = normalisePaper(cfg, topics, qs.filter(isDbMcq).map(q => dbMcq(q, true)), groupDbQuestions(qs.filter(q => !isDbMcq(q))).map(g => dbStructured(g, true)), 'db');
+  paper.pastPaper = paperLabel(p);
+  return paper;
+}
+// Sign every image in the paper and preload it, so page layout knows its size.
+async function prepareImages(paper) {
+  const figs = [];
+  const add = (f) => { if (f && f.kind === 'image' && f.path) figs.push(f); };
+  paper.mcqs.forEach(q => { add(q.figure); add(q.msImage); });
+  paper.structured.forEach(q => { add(q.figure); q.parts.forEach(p => { add(p.figure); add(p.msImage); }); });
+  if (!figs.length) return;
+  const paths = [...new Set(figs.map(f => f.path))];
+  const urls = {};
+  try {
+    const sb = await getSupabase();
+    for (let i = 0; i < paths.length; i += 100) {
+      const { data, error } = await sb.storage.from(IMAGE_BUCKET).createSignedUrls(paths.slice(i, i + 100), 6 * 3600);
+      if (error) throw error;
+      (data || []).forEach(d => { if (d.signedUrl) urls[d.path] = d.signedUrl; });
+    }
+  } catch (e) { /* images fall back to a notice */ }
+  const sizes = {};
+  await Promise.all(Object.entries(urls).map(([path, url]) => new Promise(resolve => {
+    const img = new Image();
+    const done = (ok) => { sizes[path] = ok ? { w: img.naturalWidth, h: img.naturalHeight } : null; resolve(); };
+    const t = setTimeout(() => done(false), 20000);
+    img.onload = () => { clearTimeout(t); done(true); };
+    img.onerror = () => { clearTimeout(t); done(false); };
+    img.src = url;
+  })));
+  figs.forEach(f => { f.src = urls[f.path] || ''; const sz = sizes[f.path]; if (sz) { f.w = sz.w; f.h = sz.h; } else f.failed = true; });
+}
+
+/* ============================================================
    7. APP
    ============================================================ */
 window.addEventListener('DOMContentLoaded', () => {
@@ -1375,7 +1601,16 @@ window.addEventListener('DOMContentLoaded', () => {
     expanded: {},
     customMarks: 40,
     customMcq: true,
-    source: savedKeys[savedProvider] ? 'ai' : 'bank',
+    source: 'db',
+    dbMode: 'mix',
+    dbPaperId: null,
+    includeDrawing: true,
+    user: null,
+    authEmail: '',
+    authBusy: false,
+    authMsg: null,
+    attemptIds: {},
+    saveStatus: {},
     provider: savedProvider,
     keys: savedKeys,
     models: savedModels,
@@ -1428,10 +1663,34 @@ window.addEventListener('DOMContentLoaded', () => {
   const sdScript = document.querySelector('script[src*="smiles-drawer"]');
   if (sdScript && !window.SmilesDrawer) sdScript.addEventListener('load', () => { document.querySelectorAll('.smiles-slot').forEach(s => { s.dataset.drawn = ''; }); drawStructures(document); });
 
+  async function saveAttempt(key) {
+    const paper = state.paper;
+    if (!state.user || !paper || paper.source !== 'db') return;
+    let qid = null;
+    if (key.startsWith('mcq_')) { const q = paper.mcqs.find(x => x.id === key); qid = q && q.db ? q.db.id : null; }
+    else { const m = key.match(/^(sq_\d+)_p(\d+)$/); const q = m && paper.structured.find(x => x.id === m[1]); const pt = q && q.parts[+m[2]]; qid = pt && pt.db ? pt.db.id : null; }
+    if (!qid) return;
+    const marks = state.awardedMarks[key] || 0;
+    try {
+      const sb = await getSupabase();
+      if (state.attemptIds[key]) {
+        const { error } = await sb.from('attempts').update({ marks_awarded: marks }).eq('id', state.attemptIds[key]);
+        if (error) throw error;
+      } else {
+        const { data, error } = await sb.from('attempts').insert({ question_id: qid, marks_awarded: marks }).select('id').single();
+        if (error) throw error;
+        state.attemptIds[key] = data.id;
+      }
+      state.saveStatus[key] = 'saved';
+    } catch (e) { state.saveStatus[key] = 'error'; }
+    render();
+  }
+  const savedTag = (key) => (!state.user || !state.paper || state.paper.source !== 'db' || !state.saveStatus[key] ? '' : state.saveStatus[key] === 'saved' ? '<div class="saved-tag">✓ Saved to your account</div>' : '<div class="saved-tag err">Could not save this mark to your account.</div>');
+
   function renderBusy() {
     const o = document.createElement('div');
     o.className = 'busy-overlay';
-    o.innerHTML = `<div class="busy-card"><h3>${esc(AI().name)} is writing your paper</h3><p style="margin:0;font-size:14px;">This usually takes one to two minutes.</p><ul>${state.busy.steps.map(s => `<li class="${s.status === 'done' ? 'done' : s.status === 'err' ? 'err' : ''}">${s.status === 'running' ? '<span class="spinner"></span>' : s.status === 'done' ? '✓' : '✕'} ${esc(s.label)}</li>`).join('')}</ul></div>`;
+    o.innerHTML = `<div class="busy-card"><h3>${esc(state.busy.title || `${AI().name} is writing your paper`)}</h3><p style="margin:0;font-size:14px;">${esc(state.busy.sub || 'This usually takes one to two minutes.')}</p><ul>${state.busy.steps.map(s => `<li class="${s.status === 'done' ? 'done' : s.status === 'err' ? 'err' : ''}">${s.status === 'running' ? '<span class="spinner"></span>' : s.status === 'done' ? '✓' : '✕'} ${esc(s.label)}</li>`).join('')}</ul></div>`;
     return o;
   }
 
@@ -1451,6 +1710,15 @@ window.addEventListener('DOMContentLoaded', () => {
     const P = AI();
     const curModel = conn().model;
     const isCustomModel = state.customModelOpen[state.provider] || !P.models.some(m => m.id === curModel);
+    const dbReady = DB.status === 'ready';
+    const dbMatch = dbReady ? DB.questions.filter(q => sel.has(q.ocrTopic) && (state.includeDrawing || q.delivery_mode !== 'download_only')) : [];
+    const dbMatchMarks = dbMatch.reduce((a, q) => a + q.marks, 0);
+    const presetNum = { paper1: 1, paper2: 2, paper3: 3 }[state.preset] || null;
+    const paperChoices = dbReady ? DB.papers.filter(pp => !presetNum || pp.paper_number === presetNum).slice().sort((a, b) => b.year - a.year || a.paper_number - b.paper_number) : [];
+    if (paperChoices.length && !paperChoices.some(pp => pp.id === state.dbPaperId)) state.dbPaperId = paperChoices[0].id;
+    const fullMode = state.source === 'db' && state.dbMode === 'full';
+    const dbBadge = DB.status === 'ready' ? `${DB.questions.length.toLocaleString('en-GB')} questions · ${DB.papers.length} papers` : DB.status === 'error' ? 'Could not connect' : 'Connecting…';
+    const startLabel = state.source === 'ai' ? `Write Examination Paper with ${esc(P.name)}` : fullMode ? 'Start Past Paper' : 'Generate Examination Paper';
 
     wrap.innerHTML = `
       <h1>OCR A-Level Chemistry Paper Generator</h1>
@@ -1474,16 +1742,44 @@ window.addEventListener('DOMContentLoaded', () => {
 
       <h3 class="step-title">3. Question source</h3>
       <div class="source-grid">
+        <div class="preset-card ${state.source === 'db' ? 'selected' : ''} ${DB.status === 'error' ? 'disabled' : ''}" data-source="db" tabindex="0" role="button" style="grid-column: 1 / -1;">
+          <h3>OCR past-paper questions</h3>
+          <p>Real H432 questions, mark schemes, images and revision notes from your Supabase question bank (2017–2025).${DB.status === 'error' ? ` ${esc(DB.error || '')}` : ''}</p>
+          <span class="preset-badge">${dbBadge}</span>
+        </div>
         <div class="preset-card ${state.source === 'ai' ? 'selected' : ''}" data-source="ai" tabindex="0" role="button">
           <h3>Write a new paper with AI</h3>
           <p>Fresh questions on exactly your topics, full length, with diagrams. ${hasKey ? `Uses your ${esc(P.name)} key.` : 'Needs an API key for Claude, ChatGPT or Gemini.'}</p>
           <span class="preset-badge">${hasKey ? `${esc(P.name)} key added` : 'Add key below'}</span>
         </div>
         <div class="preset-card ${state.source === 'bank' ? 'selected' : ''}" data-source="bank" tabindex="0" role="button">
-          <h3>Built-in question bank</h3>
-          <p>Instant and works offline. Limited to the questions in the bank for these topics.</p>
+          <h3>Offline sample questions</h3>
+          <p>A small set built into the page, for when the question bank can’t be reached.</p>
           <span class="preset-badge">${bankMarks.m} MCQ + ${bankMarks.s} marks available</span>
         </div>
+      </div>
+
+      ${state.source === 'db' && dbReady ? `<div class="db-opts">
+        <label><input type="radio" name="dbMode" value="mix" ${state.dbMode === 'mix' ? 'checked' : ''}> Mix past-paper questions on the topics selected above <span style="color:var(--ui-muted);font-size:13px;">(${dbMatch.length} questions, ${dbMatchMarks} marks match)</span></label>
+        <label><input type="radio" name="dbMode" value="full" ${state.dbMode === 'full' ? 'checked' : ''}> Sit a complete past paper
+          <select id="dbPaper" ${state.dbMode === 'full' ? '' : 'disabled'}>${paperChoices.map(pp => `<option value="${pp.id}" ${pp.id === state.dbPaperId ? 'selected' : ''}>${esc(paperLabel(pp))} — ${esc(String(pp.paper_title || '').replace(/^H432\/0\d\s*/, ''))}</option>`).join('')}</select></label>
+        ${state.dbMode === 'full' ? '<span style="color:var(--ui-muted);font-size:13px;">A complete paper ignores the topic selection.</span>' : `<label><input type="checkbox" id="includeDrawing" ${state.includeDrawing ? 'checked' : ''}> Include questions that need a drawn answer (you mark these yourself)</label>`}
+      </div>` : ''}
+
+      <div class="settings">
+        <div class="row" style="justify-content:space-between;">
+          <strong style="color:#FFF;">Your account <span style="font-weight:400;color:var(--ui-muted);font-size:13px;">(optional)</span></strong>
+          ${state.user ? '<button class="mini-btn" id="signOut">Sign out</button>' : ''}
+        </div>
+        ${state.user ? `<p class="hint" style="margin-top:6px;">Signed in as <strong style="color:#FFF;">${esc(state.user.email || '')}</strong>. Marks on past-paper questions are saved to your account.</p>` : `
+          <p class="hint" style="margin:6px 0 10px;">Sign in to save your marks on past-paper questions. You can practise without an account.</p>
+          <div class="row account-row">
+            <input type="email" id="authEmail" placeholder="Email" autocomplete="email" value="${esc(state.authEmail)}">
+            <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password">
+            <button class="mini-btn" id="signIn" ${state.authBusy ? 'disabled' : ''}>Sign in</button>
+            <button class="mini-btn" id="signUp" ${state.authBusy ? 'disabled' : ''}>Create account</button>
+          </div>`}
+        ${state.authMsg ? `<p class="${state.authMsg.ok ? 'status-ok' : 'status-err'}" style="margin:8px 0 0;">${esc(state.authMsg.msg)}</p>` : ''}
       </div>
 
       <div class="settings">
@@ -1513,7 +1809,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
       ${state.configError ? `<div class="config-error">${esc(state.configError)}</div>` : ''}
       ${state.configNote ? `<div class="config-note">${esc(state.configNote)}</div>` : ''}
-      <button class="btn" id="startExamBtn" ${sel.size ? '' : 'disabled'}>${state.source === 'ai' ? `Write Examination Paper with ${esc(P.name)}` : 'Generate Examination Paper'}</button>
+      <button class="btn" id="startExamBtn" ${sel.size || fullMode ? '' : 'disabled'}>${startLabel}</button>
     `;
 
     const pick = (el, fn) => { el.onclick = fn; el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } }; };
@@ -1525,7 +1821,9 @@ window.addEventListener('DOMContentLoaded', () => {
       render();
     }));
     wrap.querySelectorAll('[data-source]').forEach(card => pick(card, () => {
-      state.source = card.getAttribute('data-source');
+      const src = card.getAttribute('data-source');
+      if (src === 'db' && DB.status === 'error') return;
+      state.source = src;
       if (state.source === 'ai' && !hasAI()) state.settingsOpen = true;
       state.configError = null;
       render();
@@ -1552,7 +1850,7 @@ window.addEventListener('DOMContentLoaded', () => {
           <span class="topic-count">${n}/${ids.length}</span>
           <button class="expand-btn" aria-expanded="${open}">${open ? 'Hide topics' : 'Choose topics'}</button>
         </div>
-        ${open ? `<div class="topic-grid">${m.topics.map(([id, name]) => `<label class="topic-chip"><input type="checkbox" data-topic="${id}" ${sel.has(id) ? 'checked' : ''}><span class="tid">${id}</span><span>${fmt(name)}</span></label>`).join('')}</div>` : ''}
+        ${open ? `<div class="topic-grid">${m.topics.map(([id, name]) => `<label class="topic-chip"><input type="checkbox" data-topic="${id}" ${sel.has(id) ? 'checked' : ''}><span class="tid">${id}</span><span>${fmt(name)}</span>${DB.status === 'ready' ? `<span class="tcount">${DB.countByTopic[id] || 0} Qs</span>` : ''}</label>`).join('')}</div>` : ''}
       `;
       const box = card.querySelector('.module-head input');
       box.indeterminate = some;
@@ -1606,13 +1904,49 @@ window.addEventListener('DOMContentLoaded', () => {
       };
     }
 
+    wrap.querySelectorAll('input[name="dbMode"]').forEach(r => { r.onchange = () => { state.dbMode = r.value; render(); }; });
+    const dbp = wrap.querySelector('#dbPaper'); if (dbp) dbp.onchange = (e) => { state.dbPaperId = parseInt(e.target.value, 10); };
+    const incD = wrap.querySelector('#includeDrawing'); if (incD) incD.onchange = (e) => { state.includeDrawing = e.target.checked; render(); };
+    const authEmail = wrap.querySelector('#authEmail');
+    if (authEmail) authEmail.oninput = (e) => { state.authEmail = e.target.value.trim(); };
+    const doAuth = async (mode) => {
+      const email = (authEmail.value || '').trim(), password = wrap.querySelector('#authPassword').value;
+      state.authEmail = email;
+      if (!email || !password) { state.authMsg = { ok: false, msg: 'Enter your email and a password.' }; render(); return; }
+      state.authBusy = true; state.authMsg = null; render();
+      try {
+        const sb = await getSupabase();
+        if (mode === 'in') {
+          const { error } = await sb.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+          state.authMsg = { ok: true, msg: 'Signed in.' };
+        } else {
+          const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+          if (error) throw error;
+          state.authMsg = { ok: true, msg: data.session ? 'Account created and signed in.' : 'Account created. Check your email for a confirmation link, then sign in.' };
+        }
+      } catch (err) { state.authMsg = { ok: false, msg: err.message || 'Sign-in failed.' }; }
+      state.authBusy = false; render();
+    };
+    const si = wrap.querySelector('#signIn'); if (si) si.onclick = () => doAuth('in');
+    const su = wrap.querySelector('#signUp'); if (su) su.onclick = () => doAuth('up');
+    const so = wrap.querySelector('#signOut'); if (so) so.onclick = async () => { try { const sb = await getSupabase(); await sb.auth.signOut(); } catch (e) { /* ignore */ } state.user = null; state.authMsg = { ok: true, msg: 'Signed out.' }; render(); };
+
     wrap.querySelector('#startExamBtn').onclick = async () => {
       state.configError = null; state.configNote = null;
       const topics = ALL_TOPIC_IDS.filter(t => sel.has(t));
-      if (!topics.length) { state.configError = 'Select at least one topic.'; render(); return; }
+      if (!topics.length && !fullMode) { state.configError = 'Select at least one topic.'; render(); return; }
       const cfgNow = paperConfig(state);
       let paper;
-      if (state.source === 'ai') {
+      if (state.source === 'db') {
+        if (DB.status !== 'ready') { state.configError = DB.status === 'error' ? `The question bank could not be reached: ${DB.error}` : 'The question bank is still loading. Try again in a moment.'; render(); return; }
+        paper = fullMode ? buildFullPastPaper(state.dbPaperId) : buildPaperFromDb(cfgNow, topics, state.includeDrawing);
+        if (!paper.mcqs.length && !paper.structured.length) { state.configError = 'There are no past-paper questions for the selected topics. Choose more topics.'; render(); return; }
+        if (!fullMode && paper.total < cfgNow.marks * 0.8) state.configNote = `The question bank has ${paper.available.marks} marks of questions for these topics, so this paper has ${paper.total} of the ${cfgNow.marks} marks requested.`;
+        state.busy = { title: 'Loading your paper', sub: 'Fetching question images from the question bank…', steps: [{ label: 'Question images', status: 'running' }] }; render();
+        await prepareImages(paper);
+        state.busy = null;
+      } else if (state.source === 'ai') {
         if (!hasAI()) { state.settingsOpen = true; state.configError = `Add your ${AI().name} API key in AI settings to write a paper with AI, or choose the built-in question bank.`; render(); return; }
         state.busy = { steps: [] }; render();
         try {
@@ -1652,7 +1986,7 @@ window.addEventListener('DOMContentLoaded', () => {
       <div class="mark-scheme-item">
         <div class="mark-scheme-item-top"><span>Question ${esc(item.ref)}</span><span>[${item.marks} ${item.marks === 1 ? 'mark' : 'marks'}]</span></div>
         <div style="font-size:10.5pt; color:#334155; margin-bottom:6px; font-style:italic;">“${esc(short)}”</div>
-        <div style="background:#F0FDF4; border:1px solid #16A34A; padding:10px; border-radius:6px; font-family:'Inter', sans-serif; font-size:10pt; color:#166534;"><strong>Mark Scheme:</strong><br>${fmt(item.scheme)}</div>
+        <div style="background:#F0FDF4; border:1px solid #16A34A; padding:10px; border-radius:6px; font-family:'Inter', sans-serif; font-size:10pt; color:#166534;"><strong>Mark Scheme:</strong><br>${fmt(item.scheme)}${msImageHtml(item.msImage)}</div>
       </div>`;
   }
   function firstHeaderHtml(paper) {
@@ -1672,15 +2006,16 @@ window.addEventListener('DOMContentLoaded', () => {
           <li>Answer <strong>all</strong> the questions${paper.mcqs.length ? ' in Section A (Multiple Choice) and Section B (Structured Questions)' : ''}.</li>
           <li>Questions marked with an asterisk (*) are assessed on the quality of extended response.</li>
           <li>Click <strong>Submit Answer</strong> to check your response against the mark scheme and tally your score. Topics where you lose marks are collected in the <strong>Revision Guide</strong>.</li>
+          ${paper.structured.some(q => q.parts.some(pt => pt.selfMark)) ? '<li>Questions marked ✏️ need a drawn answer: draw on paper, then reveal the mark scheme and award your own mark.</li>' : ''}
         </ul>
-        <p class="content-covered"><strong>Content covered:</strong> Module${modulesCovered.length > 1 ? 's' : ''} ${modulesCovered.join(', ')}${isSubset ? ` — ${paper.topics.length} selected topic${paper.topics.length > 1 ? 's' : ''}` : ''}. ${paper.source === 'ai' ? `Questions written by ${esc(paper.aiName || 'AI')}.` : 'Questions from the built-in bank.'}${paper.total < cfg.marks ? (paper.source === 'ai' ? ` ${esc(paper.aiName || 'The AI')} wrote ${paper.total} of the ${cfg.marks} marks requested.` : ` This paper has ${paper.total} of the usual ${cfg.marks} marks because the built-in bank has fewer questions for these topics; write the paper with AI for full length.`) : ''}</p>
+        <p class="content-covered"><strong>Content covered:</strong> Module${modulesCovered.length > 1 ? 's' : ''} ${modulesCovered.join(', ')}${isSubset ? ` — ${paper.topics.length} selected topic${paper.topics.length > 1 ? 's' : ''}` : ''}. ${paper.source === 'db' ? (paper.pastPaper ? `Complete ${esc(paper.pastPaper)} past paper.` : 'OCR past-paper questions from the question bank.') : paper.source === 'ai' ? `Questions written by ${esc(paper.aiName || 'AI')}.` : 'Offline sample questions.'}${paper.source === 'db' ? (!paper.pastPaper && paper.total < cfg.marks ? ` The bank has ${paper.total} of the ${cfg.marks} marks requested for these topics.` : '') : paper.total < cfg.marks ? (paper.source === 'ai' ? ` ${esc(paper.aiName || 'The AI')} wrote ${paper.total} of the ${cfg.marks} marks requested.` : ` This paper has ${paper.total} of the usual ${cfg.marks} marks because the built-in bank has fewer questions for these topics; write the paper with AI for full length.`) : ''}</p>
       </div>`;
   }
   function contHeaderHtml(cfg, sectionName) {
     return `<div style="display:flex; justify-content:space-between; border-bottom:1px solid #000; padding-bottom:6px; margin-bottom:20px; font-weight:bold;"><span>OCR A-Level Chemistry Component ${esc(cfg.code)}</span><span>${sectionName}</span></div>`;
   }
   function stemOpenHtml(q) {
-    return `<div class="question-block"><div class="question-top"><span>Question ${esc(q.ref)} ${topicTag(q.topic)}</span><span>[Total: ${q.marks} marks]</span></div>${q.stem ? `<div class="question-text">${fmt(q.stem)}</div>` : ''}${renderFigure(q.figure)}`;
+    return `<div class="question-block"><div class="question-top"><span>Question ${esc(q.ref)} ${topicTag(q.topic)}${sourceTag(q)}</span><span>[Total: ${q.marks} marks]</span></div>${q.stem ? `<div class="question-text">${fmt(q.stem)}</div>` : ''}${renderFigure(q.figure)}`;
   }
   // Group a question's stem and parts into one block on each page.
   function pageItemsHtml(items) {
@@ -1753,19 +2088,23 @@ window.addEventListener('DOMContentLoaded', () => {
     const a = state.awardedMarks[key] || 0;
     return a >= max ? 'correct' : a > 0 ? 'partial' : 'incorrect';
   }
-  function evalBox(key, max, topic) {
+  function evalBox(key, max, topic, item) {
     const cls = evalClass(key, max);
     if (!cls) return '';
     if (cls === 'pending') return `<div class="auto-eval-box pending"><strong>Marking…</strong> ${esc(AI().name)} is marking your answer.</div>`;
     const a = state.awardedMarks[key] != null ? state.awardedMarks[key] : 0;
-    return `<div class="auto-eval-box ${cls}"><strong>Auto-Evaluation (${a}/${max}):</strong> ${fmt(state.feedback[key] || '')}</div>${a < max ? revisionBox(key, topic) : ''}`;
+    return `<div class="auto-eval-box ${cls}"><strong>Auto-Evaluation (${a}/${max}):</strong> ${fmt(state.feedback[key] || '')}</div>${a < max ? revisionBox(key, topic, item) : ''}${savedTag(key)}`;
   }
-  function revisionBox(key, topic) {
+  function revisionBox(key, topic, item) {
     const t = TOPIC_INDEX[topic];
-    const notes = REVISION_NOTES[topic] || [];
+    const db = item && item.db;
+    const plan = db && db.plan;
+    const notes = db ? [] : (REVISION_NOTES[topic] || []);
     const expl = state.explanations[key];
     return `<details class="revision-box" data-rev-key="${key}" ${state.revCollapsed[key] ? '' : 'open'}>
-      <summary>Revision guide: ${esc(topic)} ${t ? fmt(t.name) : ''}</summary>
+      <summary>Revision guide: ${plan ? `${esc(plan.code)} ${fmt(plan.title)}` : `${esc(topic)} ${t ? fmt(t.name) : ''}`}</summary>
+      ${db && db.revise_note ? `<p><strong>Key point:</strong> ${fmt(db.revise_note)}</p>` : ''}
+      ${plan && plan.revision_guide ? `<p>${fmt(plan.revision_guide)}</p>` : ''}
       ${notes.length ? `<ul>${notes.map(n => `<li>${fmt(n)}</li>`).join('')}</ul>` : ''}
       ${expl ? `<div class="rev-explain"><strong>${esc(state.explainedBy[key] || AI().name)}’s explanation:</strong>${fmtNotes(expl)}</div>` : ''}
       ${hasAI() && !expl ? `<button class="rev-btn" data-explain="${key}" ${state.explaining[key] ? 'disabled' : ''}>${state.explaining[key] ? `${esc(AI().name)} is explaining…` : `Explain my mistake with ${esc(AI().name)}`}</button>` : ''}
@@ -1775,9 +2114,15 @@ window.addEventListener('DOMContentLoaded', () => {
   // Every answered question that lost marks, grouped by topic.
   function weakTopics() {
     const paper = state.paper, byTopic = {};
-    const add = (topic, item) => { const w = byTopic[topic] = byTopic[topic] || { topic, name: (TOPIC_INDEX[topic] || {}).name || topic, lost: 0, max: 0, items: [] }; w.lost += item.max - item.awarded; w.max += item.max; w.items.push(item); };
-    paper.mcqs.forEach(q => { if (state.submittedStatus[q.id] && (state.awardedMarks[q.id] || 0) < 1) add(q.topic, { key: q.id, ref: q.ref, text: q.stem, scheme: q.mark_scheme, answer: state.userAnswers[q.id] || '', awarded: state.awardedMarks[q.id] || 0, max: 1 }); });
-    paper.structured.forEach(q => q.parts.forEach((p, i) => { const k = `${q.id}_p${i}`; if (state.submittedStatus[k] && (state.awardedMarks[k] || 0) < p.marks) add(p.topic, { key: k, ref: `${q.ref}${p.label}`, text: p.text, scheme: p.mark_scheme, answer: state.userAnswers[k] || '', awarded: state.awardedMarks[k] || 0, max: p.marks }); }));
+    const add = (topic, item, db) => {
+      const plan = db && db.plan;
+      const gk = plan ? `plan:${plan.id}` : topic;
+      const w = byTopic[gk] = byTopic[gk] || (plan ? { topic: plan.code, name: plan.title, guide: plan.revision_guide || '', isDb: true, lost: 0, max: 0, items: [] } : { topic, name: (TOPIC_INDEX[topic] || {}).name || topic, lost: 0, max: 0, items: [] });
+      item.note = db ? db.revise_note : '';
+      w.lost += item.max - item.awarded; w.max += item.max; w.items.push(item);
+    };
+    paper.mcqs.forEach(q => { if (state.submittedStatus[q.id] && (state.awardedMarks[q.id] || 0) < 1) add(q.topic, { key: q.id, ref: q.ref, text: q.stem, scheme: q.mark_scheme, answer: state.userAnswers[q.id] || '', awarded: state.awardedMarks[q.id] || 0, max: 1 }, q.db); });
+    paper.structured.forEach(q => q.parts.forEach((p, i) => { const k = `${q.id}_p${i}`; if (state.submittedStatus[k] && (state.awardedMarks[k] || 0) < p.marks) add(p.topic, { key: k, ref: `${q.ref}${p.label}`, text: `${q.stem ? q.stem + '\n\n' : ''}${p.text}`, scheme: p.mark_scheme, answer: state.userAnswers[k] || '', awarded: state.awardedMarks[k] || 0, max: p.marks }, p.db); }));
     return Object.values(byTopic).sort((a, b) => b.lost - a.lost || a.topic.localeCompare(b.topic));
   }
   function overrideRow(key, max) {
@@ -1785,6 +2130,8 @@ window.addEventListener('DOMContentLoaded', () => {
     return `<div class="mark-btn-row"><span>Override mark${max > 1 ? `s (0 to ${max})` : ''}:</span>${Array.from({ length: max + 1 }, (_, m) => `<button class="mark-btn ${cur === m ? 'active' : ''}" data-key="${key}" data-mark="${m}">${m}</button>`).join('')}</div>`;
   }
   const topicTag = (t) => (TOPIC_INDEX[t] ? `<span class="topic-tag">${esc(t)} ${fmt(TOPIC_INDEX[t].name)}</span>` : '');
+  const sourceTag = (q) => (q.sourceTag && !(state.paper && state.paper.pastPaper) ? `<span class="source-tag">· ${esc(q.sourceTag)}</span>` : '');
+  const msImageHtml = (f) => (f ? `<div class="ms-figure">${figImage(f)}</div>` : '');
 
   function renderMcq(q) {
     const key = q.id;
@@ -1792,20 +2139,21 @@ window.addEventListener('DOMContentLoaded', () => {
     const revealed = !!state.revealedSchemes[key];
     return `
       <div class="question-block">
-        <div class="question-top"><span>Question ${esc(q.ref)} ${topicTag(q.topic)}</span><span>[1 mark]</span></div>
+        <div class="question-top"><span>Question ${esc(q.ref)} ${topicTag(q.topic)}${sourceTag(q)}</span><span>[1 mark]</span></div>
         <div class="question-text">${fmt(q.stem)}</div>
         ${renderFigure(q.figure)}
-        <div class="mcq-grid" role="radiogroup">
+        <div class="${q.options.every(o => !o.text && !o.smiles) ? 'mcq-letters' : 'mcq-grid'}" role="radiogroup" aria-label="Your answer">
           ${q.options.map(o => `<button type="button" class="mcq-option ${chosen === o.letter ? 'chosen' : ''}" data-mcq="${key}" data-letter="${esc(o.letter)}" role="radio" aria-checked="${chosen === o.letter}"><span class="letter">${esc(o.letter)}</span><span>${o.smiles ? `<span class="opt-structure">${smilesSlot(o.smiles, true)}</span>` : ''}${fmt(o.text)}</span></button>`).join('')}
         </div>
         <div class="q-actions">
           <button class="submit-answer-btn" data-submit-key="${key}">Submit Answer &amp; Auto-Mark</button>
           <button class="reveal-btn" data-reveal="${key}">${revealed ? 'Hide Mark Scheme' : 'Reveal Mark Scheme'}</button>
         </div>
-        ${evalBox(key, 1, q.topic)}
+        ${evalBox(key, 1, q.topic, q)}
         <div class="mark-scheme-drawer ${revealed ? 'visible' : ''}">
           <strong>Answer &amp; Mark Scheme:</strong>
           <p style="margin:4px 0 6px 0;color:#166534;">${fmt(q.mark_scheme)}</p>
+          ${msImageHtml(q.msImage)}
           ${overrideRow(key, 1)}
         </div>
       </div>`;
@@ -1819,16 +2167,17 @@ window.addEventListener('DOMContentLoaded', () => {
         <div class="subquestion-top"><span>${esc(q.ref)}${esc(p.label)}</span><span>[${p.marks} ${p.marks === 1 ? 'mark' : 'marks'}]</span></div>
         <div class="question-text">${fmt(p.text)}</div>
         ${renderFigure(p.figure)}
-        <div class="answer-space"><textarea rows="${rows}" data-answer-key="${key}" placeholder="Write your full working and final response here...">${esc(state.userAnswers[key] || '')}</textarea></div>
+        ${p.selfMark ? `<div class="self-mark-note">✏️ This question needs a drawn answer. Draw it on paper, then reveal the mark scheme and give yourself a mark.</div>` : `<div class="answer-space"><textarea rows="${rows}" data-answer-key="${key}" placeholder="Write your full working and final response here...">${esc(state.userAnswers[key] || '')}</textarea></div>`}
         <div class="q-actions">
-          <button class="submit-answer-btn" data-submit-key="${key}" ${state.marking[key] ? 'disabled' : ''}>${state.marking[key] ? 'Marking…' : 'Submit Answer &amp; Auto-Mark'}</button>
+          ${p.selfMark ? '<span></span>' : `<button class="submit-answer-btn" data-submit-key="${key}" ${state.marking[key] ? 'disabled' : ''}>${state.marking[key] ? 'Marking…' : 'Submit Answer &amp; Auto-Mark'}</button>`}
           <button class="reveal-btn" data-reveal="${key}">${revealed ? 'Hide Mark Scheme' : 'Reveal Mark Scheme'}</button>
         </div>
-        ${evalBox(key, p.marks, p.topic)}
+        ${evalBox(key, p.marks, p.topic, p)}
         <div class="mark-scheme-drawer ${revealed ? 'visible' : ''}">
           <strong>Mark Scheme:</strong>
           <p style="margin:4px 0 6px 0;color:#166534;">${fmt(p.mark_scheme)}</p>
-          ${overrideRow(key, p.marks)}
+          ${msImageHtml(p.msImage)}
+          ${p.selfMark ? `<div class="mark-btn-row" style="margin-top:6px;"><strong>Your mark:</strong></div>` : ''}${overrideRow(key, p.marks)}
         </div>
       </div>`;
   }
@@ -1853,10 +2202,13 @@ window.addEventListener('DOMContentLoaded', () => {
       }
       html += `<div class="section-title">Topics to review (most marks lost first)</div>`;
       weak.forEach(w => {
-        const notes = REVISION_NOTES[w.topic] || [];
+        const notes = w.isDb ? [] : (REVISION_NOTES[w.topic] || []);
+        const keyPoints = [...new Set(w.items.map(it => it.note).filter(Boolean))];
         html += `<div class="rev-topic">
           <div class="rev-topic-top"><span>${esc(w.topic)} ${fmt(w.name)}</span><span>${w.lost} / ${w.max} marks lost</span></div>
           <div class="rev-missed">Module ${moduleOfTopic(w.topic)} · Questions: ${w.items.map(it => `<a href="#" data-goto-key="${it.key}">${esc(it.ref)}</a> (${it.awarded}/${it.max})`).join(', ')}</div>
+          ${w.guide ? `<p style="font-size:11pt;margin:6px 0;">${fmt(w.guide)}</p>` : ''}
+          ${keyPoints.length ? `<div class="rev-missed" style="margin-top:4px;">Key points from the questions you dropped marks on:</div><ul>${keyPoints.map(n => `<li>${fmt(n)}</li>`).join('')}</ul>` : ''}
           ${notes.length ? `<ul>${notes.map(n => `<li>${fmt(n)}</li>`).join('')}</ul>` : ''}
           ${w.items.filter(it => state.explanations[it.key]).map(it => `<div class="rev-explain" style="font-family:Inter,sans-serif;font-size:10pt;"><strong>Question ${esc(it.ref)} — ${esc(state.explainedBy[it.key] || AI().name)}’s explanation:</strong>${fmtNotes(state.explanations[it.key])}</div>`).join('')}
         </div>`;
@@ -1921,7 +2273,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const tallyBar = document.createElement('div');
     tallyBar.className = 'score-summary-bar';
     tallyBar.innerHTML = `
-      <div><strong>Live Score Tally:</strong> <span style="color:#38BDF8; font-size:16px; font-weight:bold;">${totalAwarded}</span> / ${paper.total} Marks | Component ${esc(cfg.code)}</div>
+      <div><strong>Live Score Tally:</strong> <span style="color:#38BDF8; font-size:16px; font-weight:bold;">${totalAwarded}</span> / ${paper.total} Marks | Component ${esc(cfg.code)}${paper.source === 'db' ? (state.user ? ' · <span style="color:#34D399;">Marks saved to your account</span>' : ' · <span style="color:#94A3B8;">Not signed in — marks aren’t saved</span>') : ''}</div>
       <div style="display:flex; gap:12px;">
         <button id="bottomPrev" class="btn-ghost" ${state.currentPage === 1 ? 'disabled' : ''}>&larr; Prev Page</button>
         <span style="align-self:center;">Page ${state.currentPage} of ${totalPages}</span>
@@ -1938,7 +2290,7 @@ window.addEventListener('DOMContentLoaded', () => {
         let ctx;
         if (key.startsWith('mcq_')) {
           const q = paper.mcqs.find(x => x.id === key);
-          ctx = { topic: q.topic, topicName: (TOPIC_INDEX[q.topic] || {}).name, stem: '', text: q.stem, options: q.options.map(o => `${o.letter}: ${plain(o.text)}${o.smiles ? ` (${o.smiles})` : ''}`).join(' | '), scheme: q.mark_scheme, answer: state.userAnswers[key] ? `option ${state.userAnswers[key]}` : '', awarded: state.awardedMarks[key] || 0, max: 1 };
+          ctx = { topic: q.topic, topicName: (TOPIC_INDEX[q.topic] || {}).name, stem: q.db && q.db.revise_note ? `(Revision note: ${q.db.revise_note})` : '', text: q.stem, options: q.options.map(o => `${o.letter}: ${plain(o.text)}${o.smiles ? ` (${o.smiles})` : ''}`).join(' | '), scheme: q.mark_scheme, answer: state.userAnswers[key] ? `option ${state.userAnswers[key]}` : '', awarded: state.awardedMarks[key] || 0, max: 1 };
         } else {
           const f = findPart(key); if (!f) return;
           ctx = { topic: f.p.topic, topicName: (TOPIC_INDEX[f.p.topic] || {}).name, stem: f.q.stem, text: f.p.text, scheme: f.p.mark_scheme, answer: state.userAnswers[key] || '', awarded: state.awardedMarks[key] || 0, max: f.p.marks };
@@ -1985,11 +2337,11 @@ window.addEventListener('DOMContentLoaded', () => {
           if (!ans) { state.awardedMarks[key] = 0; state.feedback[key] = 'No option selected.'; }
           else if (ans === q.answer) { state.awardedMarks[key] = 1; state.feedback[key] = `Correct — option ${q.answer}.`; }
           else { state.awardedMarks[key] = 0; state.feedback[key] = `Incorrect. The answer is ${q.answer}.`; }
-          state.submittedStatus[key] = true; render(); return;
+          state.submittedStatus[key] = true; render(); saveAttempt(key); return;
         }
         const found = findPart(key); if (!found) return;
         const { q, p } = found;
-        if (!ans.trim()) { state.awardedMarks[key] = 0; state.feedback[key] = 'No answer provided.'; state.submittedStatus[key] = true; render(); return; }
+        if (!ans.trim()) { state.awardedMarks[key] = 0; state.feedback[key] = 'No answer provided.'; state.submittedStatus[key] = true; render(); saveAttempt(key); return; }
         if (hasAI()) {
           state.marking[key] = true; render();
           try {
@@ -2004,7 +2356,7 @@ window.addEventListener('DOMContentLoaded', () => {
           const r = keywordMark(ans, p.mark_scheme, p.marks);
           state.awardedMarks[key] = r.awarded; state.feedback[key] = r.feedback;
         }
-        state.submittedStatus[key] = true; render();
+        state.submittedStatus[key] = true; render(); saveAttempt(key);
       };
     });
     const go = (n) => { state.currentPage = Math.min(totalPages, Math.max(1, n)); render(); window.scrollTo(0, 0); };
@@ -2021,11 +2373,37 @@ window.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => { window.print(); state.showSinglePageMode = was; render(); }, 150);
     };
     viewport.querySelectorAll('[data-reveal]').forEach(btn => { btn.onclick = () => { const k = btn.getAttribute('data-reveal'); state.revealedSchemes[k] = !state.revealedSchemes[k]; render(); }; });
-    viewport.querySelectorAll('.mark-btn').forEach(btn => { btn.onclick = () => { const k = btn.getAttribute('data-key'); state.awardedMarks[k] = parseInt(btn.getAttribute('data-mark'), 10); state.submittedStatus[k] = true; state.feedback[k] = state.feedback[k] ? state.feedback[k] + ' (Mark overridden.)' : 'Mark set manually.'; render(); }; });
+    viewport.querySelectorAll('.mark-btn').forEach(btn => { btn.onclick = () => { const k = btn.getAttribute('data-key'); state.awardedMarks[k] = parseInt(btn.getAttribute('data-mark'), 10); state.submittedStatus[k] = true; state.feedback[k] = !state.feedback[k] || /^Mark set manually\.$/.test(state.feedback[k]) ? 'Mark set manually.' : state.feedback[k].replace(/ \(Mark overridden\.\)$/, '') + ' (Mark overridden.)'; render(); saveAttempt(k); }; });
     return viewport;
   }
 
   render();
+
+  // Load the Supabase question bank and any saved sign-in.
+  (async () => {
+    try {
+      const before = new Set(state.selectedTopics);
+      const known = OCR_MODULES.map(m => m.topics.map(t => t[0]));
+      await loadBank();
+      // Keep "whole module selected" selections whole now the topic list comes from the database.
+      OCR_MODULES.forEach((m, i) => {
+        if (known[i].length && known[i].every(t => before.has(t))) state.selectedTopics = [...new Set(state.selectedTopics.concat(m.topics.map(t => t[0])))];
+      });
+      state.selectedTopics = state.selectedTopics.filter(t => TOPIC_INDEX[t]);
+    } catch (e) {
+      DB.status = 'error';
+      DB.error = /fetch|network|load failed|timed out/i.test(e.message || '') ? 'Could not connect to the question bank, so the offline sample questions are selected instead.' : (e.message || String(e));
+      if (state.source === 'db') state.source = 'bank';
+    }
+    if (state.screen === 'config') render();
+    try {
+      const sb = await getSupabase();
+      const { data } = await sb.auth.getSession();
+      state.user = data && data.session ? data.session.user : null;
+      sb.auth.onAuthStateChange((_evt, session) => { state.user = session ? session.user : null; render(); });
+      render();
+    } catch (e) { /* accounts unavailable */ }
+  })();
 });
 </script>
 </body>
