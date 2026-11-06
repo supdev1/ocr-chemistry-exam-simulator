@@ -1482,13 +1482,31 @@ async function loadBank() {
 }
 
 const imageFig = (path, alt) => (path ? { kind: 'image', path, alt } : null);
-// Split shared opening paragraphs (the question's context) from each part's own text.
+// Each part in the bank repeats the question's context. Show the context once:
+// - the first part's opening paragraphs that later parts repeat become the shared stem;
+// - every later part drops opening paragraphs already shown earlier in the same question.
+// A part's last paragraph (its actual question or answer line) is never removed, and
+// only exact repeats (ignoring spacing and case) count, so different data is never hidden.
 function splitShared(texts) {
-  if (texts.length < 2) return { shared: '', rest: texts };
-  const paras = texts.map(t => String(t).split(/\n{2,}/));
-  let k = 0;
-  while (paras.every(p => p.length > k + 1 && p[k].trim() === paras[0][k].trim())) k++;
-  return { shared: paras[0].slice(0, k).join('\n\n'), rest: paras.map(p => p.slice(k).join('\n\n')) };
+  const norm = (p) => p.replace(/\s+/g, ' ').trim().toLowerCase();
+  const paras = texts.map(t => String(t || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean));
+  if (paras.length < 2) return { shared: '', rest: texts };
+  const leadingRepeats = (ps, seen) => { let j = 0; while (j < ps.length - 1 && seen.has(norm(ps[j]))) j++; return j; };
+  // Stem: the longest opening run of part 1 that some later part also opens with.
+  let stemLen = 0;
+  for (let i = 1; i < paras.length; i++) {
+    const seen = new Set(paras[0].slice(0, paras[0].length - 1).map(norm));
+    let k = 0;
+    while (k < paras[0].length - 1 && k < paras[i].length - 1 && seen.has(norm(paras[i][k])) && norm(paras[i][k]) === norm(paras[0][k])) k++;
+    stemLen = Math.max(stemLen, k);
+  }
+  const shown = new Set(paras[0].slice(0, stemLen).map(norm));
+  const rest = paras.map((ps, i) => {
+    const drop = i === 0 ? stemLen : leadingRepeats(ps, shown);
+    ps.forEach(p => shown.add(norm(p)));
+    return ps.slice(drop).join('\n\n');
+  });
+  return { shared: paras[0].slice(0, stemLen).join('\n\n'), rest };
 }
 function groupDbQuestions(qs) {
   const groups = [], index = {};
