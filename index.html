@@ -1533,20 +1533,53 @@ function dbMcq(q, keepRef) {
 }
 // Use the context stored once in question_contexts: each context is shown before the first
 // displayed part that needs it, and skipped if an already-shown context contains it word for word.
+// Sentence-level tidy-up for context that grows or is restated from part to part
+// (e.g. "Step 1 …" then "Step 1 … Step 2 …"). Within a question, a context paragraph drops:
+//  - sentences at its start that were already shown (any length);
+//  - later sentences (40+ characters) already shown, or whose every word, number and formula
+//    appears in one sentence already shown.
+// Tables are only dropped when identical. A part's final paragraph is never changed.
+const CTX_STOP = new Set(['a', 'an', 'the', 'is', 'are', 'of', 'to', 'in', 'on', 'and', 'by', 'with', 'this', 'that', 'as', 'for', 'be', 'can', 'which', 'its', 'it']);
+const ctxNorm = (t) => String(t).replace(/\s+/g, ' ').trim().toLowerCase();
+const ctxWords = (s) => (String(s).toLowerCase().match(/[a-z0-9⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉⁺⁻()[\]=.,–−+-]+/g) || []).map(w => w.replace(/^[.,]+|[.,]+$/g, '')).filter(Boolean);
+const isTablePara = (p) => p.split('\n').filter(l => / \| /.test(l)).length >= 2;
+const ctxSentences = (line) => line.split(/(?<=[.!?:])\s+(?=[A-Z(])/).filter(s => s.trim());
+function newShownState() { return { sents: new Set(), wordSets: [], paras: [] }; }
+function rememberShown(st, p) {
+  st.paras.push(ctxNorm(p));
+  p.split('\n').forEach(line => ctxSentences(line).forEach(s => { st.sents.add(ctxNorm(s)); st.wordSets.push(new Set(ctxWords(s))); }));
+}
+function tidyContextPara(p, st) {
+  const n = ctxNorm(p);
+  if (st.paras.some(s => s.includes(n))) return '';
+  if (isTablePara(p)) return p;
+  const seen = (s) => st.sents.has(ctxNorm(s));
+  const covered = (s) => { const ws = ctxWords(s).filter(w => !CTX_STOP.has(w)); return ws.length >= 5 && st.wordSets.some(set => ws.every(w => set.has(w))); };
+  let leading = true;
+  const lines = p.split('\n').map(line => ctxSentences(line).filter(s => {
+    if (leading && seen(s)) return false;
+    leading = false;
+    return !(s.trim().length >= 40 && (seen(s) || covered(s)));
+  }).join(' ')).filter(l => l.trim());
+  return lines.join('\n');
+}
+// Show each stored context once per question, before the first displayed part that needs it.
 function contextSplit(items) {
-  const norm = (t) => String(t).replace(/\s+/g, ' ').trim().toLowerCase();
-  const shownIds = new Set(), shownText = [];
+  const shownIds = new Set(), st = newShownState();
   let shared = '';
   const rest = items.map((q, i) => {
-    const need = (q.ctx || []).filter(c => {
-      if (shownIds.has(c.id)) return false;
-      const n = norm(c.context_text);
-      if (shownText.some(t => t.includes(n))) { shownIds.add(c.id); return false; }
-      shownIds.add(c.id); shownText.push(n); return true;
+    const ctxParas = (q.ctx || []).filter(c => !shownIds.has(c.id)).map(c => { shownIds.add(c.id); return c.context_text; });
+    const own = String(q.part_text || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    const all = ctxParas.concat(own);
+    const kept = all.map((p, j) => {
+      const out = j === all.length - 1 ? p : tidyContextPara(p, st);
+      rememberShown(st, p);
+      return out;
     });
-    const ctxText = need.map(c => c.context_text).join('\n\n');
-    if (i === 0) { shared = ctxText; return q.part_text; }
-    return [ctxText, q.part_text].filter(Boolean).join('\n\n');
+    const ctxOut = kept.slice(0, ctxParas.length).filter(Boolean).join('\n\n');
+    const ownOut = kept.slice(ctxParas.length).filter(Boolean).join('\n\n');
+    if (i === 0) { shared = ctxOut; return ownOut; }
+    return [ctxOut, ownOut].filter(Boolean).join('\n\n');
   });
   return { shared, rest };
 }

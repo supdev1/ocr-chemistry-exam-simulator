@@ -33,25 +33,25 @@ Every part of a multi-part question repeats the question's context in `question_
 **Which to use**
 
 - Showing **one part on its own** (flashcards, a single practice question): use `question_text` as before. Nothing needs to change.
-- Showing **several parts of the same question together** (an exam paper, a whole question): show each linked context once, before the first displayed part that needs it, then each part's `part_text`. Skip a context if an already-shown context contains its text word for word (a few parts restate a shortened version).
+- Showing **several parts of the same question together** (an exam paper, a whole question), in two steps:
+  1. **Contexts:** show each linked context once, before the first displayed part that needs it, then each part's `part_text`.
+  2. **Sentence tidy-up:** context often grows from part to part ("Step 1 …", then "Step 1 … Step 2 …") or is restated. Within one question, for every paragraph except a part's final one (its actual question):
+     - drop it if an already-shown paragraph contains it word for word;
+     - otherwise drop sentences at its start that were already shown (any length), and later sentences of 40+ characters that were already shown, or whose every word, number and formula appears in one sentence already shown (ignore little words such as "the", "of", "is");
+     - only drop a table if an identical table was already shown.
 
-```js
-const shown = new Set(), shownText = [];
-for (const part of partsInDisplayOrder) {            // parts of one paper_id + question number
-  for (const c of part.contexts) {                   // from question_context_links, ordered by position
-    const t = c.context_text.replace(/\s+/g, ' ').toLowerCase();
-    if (shown.has(c.id) || shownText.some(s => s.includes(t))) { shown.add(c.id); continue; }
-    shown.add(c.id); shownText.push(t); render(c.context_text);
-  }
-  render(part.part_text);
-}
-```
+  The reference implementation is `contextSplit` / `tidyContextPara` in the simulator's `index.html`. On the 60 questions that needed it, step 2 cuts what is shown by a further 7%, with no part left empty and no part's question changed.
 
 Fetch with supabase-js: `from('questions').select('id, question_ref, part_text, question_context_links(position, question_contexts(id, context_text))')`.
 
 **How it was split.** A paragraph counts as shared context when it is in the opening run of a part, is not the part's last paragraph, and appears word for word (ignoring spacing and capitals) in another part of the same question. Reworded restatements are never merged, so no different data is hidden. Rebuilding text as contexts + `part_text` reproduces `question_text` exactly for all 1,093 questions. A full multi-part question now shows 69% of the stored text.
 
-**Needs review.** `questions.context_needs_review = true` on 133 parts in 60 questions where parts restate context in different wording. List them with the view `questions_needing_context_review`. After correcting `part_text` / links by hand, set the flag to `false`.
+**Review (done 6 Nov 2026).** 133 parts in 60 questions restated context in different wording. All were reviewed and `context_needs_review` cleared:
+- 80 are handled by the sentence tidy-up above.
+- 43 look similar but carry different content (another compound, other data, a different route) and must stay.
+- 10 restate context with a formula or detail added or dropped. These were left as they are: a sentence of repetition is harmless, and editing would mean rewriting exam text.
+
+The view `questions_needing_context_review` lists anything flagged in future.
 
 **After adding or editing questions,** rebuild that paper only, so reviewed papers are not overwritten:
 
